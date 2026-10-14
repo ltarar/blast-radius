@@ -1,0 +1,19 @@
+{
+  "name": "blast-radius",
+  "displayName": "blast-radius",
+  "version": "0.1.0",
+  "description": "Shows what your branch can break: callers in the same repo, across Packwerk packages, and in other repos that use it",
+  "author": { "name": "Lia Tarar", "url": "https://github.com/ltarar" },
+  "homepage": "https://github.com/ltarar/blast-radius",
+  "repository": "https://github.com/ltarar/blast-radius",
+  "keywords": ["packwerk", "rails", "ruby", "monorepo", "dependencies", "code-review", "mod"],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "reposRoot": {
+      "type": "string",
+      "title": "Repos folder",
+      "description": "The folder that holds your cloned repos. blast-radius searches every git repo in it for uses of what you change.",
+      "default": "~/Repositories"
+    }
+  }
+}

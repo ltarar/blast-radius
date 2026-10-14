@@ -1,0 +1,6 @@
+{
+  "name": "blast-radius",
+  "description": "See what your branch can break before you push",
+  "owner": { "name": "Lia Tarar" },
+  "plugins": [{ "name": "blast-radius", "source": "./" }]
+}
