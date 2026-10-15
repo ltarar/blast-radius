@@ -36,6 +36,8 @@ import type { Member, PackageInfo, Published } from './radius'
 
 const PANE = 'blast-radius'
 const MAX_CHECKED = 30
+// The pane scrolls, so it stays short enough to leave the transcript in view.
+const MAX_PANE_ROWS = 12
 const repos = atom({ plugin: 'blast-radius', key: 'repos' } as const, [])
 const focus = atom({ plugin: 'blast-radius', key: 'focus' } as const, [])
 const showAll = atom({ plugin: 'blast-radius', key: 'showAll' } as const, false)
@@ -302,7 +304,7 @@ function paneRows(list: RepoBlast[]) {
   const perRepo = list.map(
     one => 7 + Math.min(one.todo?.added ?? 0, 5) + one.listed.reduce((n, f) => n + 5 + Math.min(f.uses.length, 6) + f.repoUses.length, 0),
   )
-  return Math.max(6, perRepo.reduce((a, b) => a + b, 0))
+  return Math.min(MAX_PANE_ROWS, Math.max(6, perRepo.reduce((a, b) => a + b, 0)))
 }
 
 function summary(list: RepoBlast[]) {
