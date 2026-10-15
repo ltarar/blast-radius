@@ -193,6 +193,15 @@ async function blastOfRepo($: EngineInterface, repo: string, consumers: Consumer
     consumers,
   }
 
+  // Class names defined by the branch's files now, so a deleted file whose class moved isn't reported as broken.
+  const definitions: Record<string, string> = {}
+  for (const path of files) {
+    if (languageOf(path) !== 'ruby' || isTest(path)) continue
+    const source = await readIfThere($, `${repoRoot}/${path}`)
+    const name = source ? constantOf(source) : undefined
+    if (name) definitions[name] = path
+  }
+
   let checked = 0
   for (const path of files) {
     if (isTodoFile(path)) {
@@ -204,7 +213,9 @@ async function blastOfRepo($: EngineInterface, repo: string, consumers: Consumer
     else if (usesPackwerk && isPrivate(path, packages)) blast.quiet++
     else {
       checked++
-      const file = await checkFile($, repoRoot, base, path, usesPackwerk ? packages : undefined, consumers).catch(() => undefined)
+      const found = await checkFile($, repoRoot, base, path, usesPackwerk ? packages : undefined, consumers).catch(() => undefined)
+      const movedTo = found?.isDeleted && found.name ? definitions[found.name] : undefined
+      const file = found && movedTo ? { ...found, movedTo } : found
       if (!file) blast.notChecked++
       else if (shouldList(file)) blast.listed.push(file)
       else blast.quiet++
@@ -383,7 +394,7 @@ export const register: Register = (on, options) => {
                 <Box flexDirection="column" marginTop={1}>
                   <Text bold>
                     {dot} {f.path.split('/').pop()}
-                    {f.isDeleted ? ' (deleted)' : ''}
+                    {f.movedTo ? ' (moved)' : f.isDeleted ? ' (deleted)' : ''}
                   </Text>
                   <Text dimColor>   {f.path.split('/').slice(0, -1).join('/')}/</Text>
                   {f.changed.length > 0 && <Text>   changed: {f.changed.join(', ')}</Text>}

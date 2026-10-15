@@ -166,6 +166,7 @@ export const shouldList = (file: FileBlast): boolean =>
 export type Advice = { level: 'red' | 'yellow' | 'green'; text: string }
 
 export const adviceFor = (file: FileBlast): Advice => {
+  if (file.movedTo) return { level: 'green', text: `Moved to ${file.movedTo}. Callers still work.` }
   const elsewhere = file.uses.length > 0 || file.repoUses.length > 0
   if (file.isDeleted && elsewhere) return { level: 'red', text: 'Deleted, but still used. Those lines will break.' }
   if (file.isDeleted) return { level: 'green', text: 'Deleted, and nothing else used it. Safe.' }

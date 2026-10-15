@@ -140,6 +140,10 @@ describe('advice', () => {
     expect(adviceFor({ ...file, uses: [use] }).level).toBe('yellow')
     expect(adviceFor({ ...file, repoUses: [{ repo: 'web', uses: [use], testUses: 0 }] }).level).toBe('red')
     expect(adviceFor({ ...file, isDeleted: true, uses: [use] }).level).toBe('red')
+    expect(adviceFor({ ...file, isDeleted: true, uses: [use], movedTo: 'shared/a.rb' })).toEqual({
+      level: 'green',
+      text: 'Moved to shared/a.rb. Callers still work.',
+    })
   })
 })
 

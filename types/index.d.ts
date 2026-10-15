@@ -7,6 +7,7 @@ export type FileBlast = {
   name?: string
   changed: string[]
   isDeleted: boolean
+  movedTo?: string
   visibleTo: string[]
   uses: Usage[]
   testUses: number
