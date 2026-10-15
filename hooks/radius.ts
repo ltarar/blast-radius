@@ -276,6 +276,9 @@ export const parseDiffLines = (diff: string): ChangedLines => {
   return lines
 }
 
+// A grep hit on a Ruby or JS comment line, which can't break.
+export const isCommentLine = (code: string): boolean => /^(#|\/\/|\/\*|\*)/.test(code.trim())
+
 const isRubyComment = (line: string) => line.trim() === '' || line.trim().startsWith('#')
 
 export type Member = { kind: 'class-method' | 'method' | 'constant' | 'whole'; name: string }

@@ -10,6 +10,7 @@ import {
   expandHome,
   dependentsOf,
   gemNameOf,
+  isCommentLine,
   isPrivate,
   isTest,
   languageOf,
@@ -119,6 +120,15 @@ describe('repos', () => {
     expect(consumersOf('shared_rules', { gem: 'shared_rules' }, manifests)).toEqual([{ repo: 'web', via: 'gem' }])
     expect(consumersOf('ui-kit', { npm: 'ui-kit' }, manifests)).toEqual([{ repo: 'frontend', via: 'npm' }])
     expect(consumersOf('api', {}, manifests)).toEqual([])
+  })
+})
+
+describe('comments', () => {
+  test('treats Ruby and JS comment lines as comments', () => {
+    expect(isCommentLine('# Pricing::Quote is cached')).toBe(true)
+    expect(isCommentLine('// uses Quote')).toBe(true)
+    expect(isCommentLine(' * @see Quote')).toBe(true)
+    expect(isCommentLine('quote = Pricing::Quote.calculate(items) # cached')).toBe(false)
   })
 })
 

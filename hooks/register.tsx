@@ -18,6 +18,7 @@ import {
   gemNameOf,
   importPattern,
   isPrivate,
+  isCommentLine,
   isTest,
   languageOf,
   memberLabel,
@@ -107,7 +108,7 @@ async function searchUses($: EngineInterface, repoRoot: string, name: string, is
     hits.push(...parseGrepHits(found ?? ''))
   }
   const seen = new Set<string>()
-  return hits.filter(hit => !seen.has(`${hit.path}:${hit.line}`) && seen.add(`${hit.path}:${hit.line}`))
+  return hits.filter(hit => !isCommentLine(hit.code) && !seen.has(`${hit.path}:${hit.line}`) && seen.add(`${hit.path}:${hit.line}`))
 }
 
 async function checkFile(
