@@ -25,7 +25,6 @@ import {
   parseTodo,
   repoOf,
   ruleLabel,
-  todoAdvice,
   shouldList,
 } from './radius'
 
@@ -148,14 +147,17 @@ describe('advice', () => {
   test('advises from usage and deletion', () => {
     expect(adviceFor({ ...file, visibleTo: ['.'] })).toEqual({
       level: 'green',
-      text: 'The root package can use it, but nothing does yet. Check it needs to be public.',
+      text: 'a.rb is public to the root package, but nothing uses it yet. Check it needs to be public.',
     })
-    expect(adviceFor({ ...file, uses: [use] }).level).toBe('yellow')
+    expect(adviceFor({ ...file, changed: ['.call'], uses: [use, use] })).toEqual({
+      level: 'yellow',
+      text: 'You changed .call in a.rb. 2 places call it. Run their specs:',
+    })
     expect(adviceFor({ ...file, repoUses: [{ repo: 'web', uses: [use], testUses: 0 }] }).level).toBe('red')
-    expect(adviceFor({ ...file, isDeleted: true, uses: [use] }).level).toBe('red')
+    expect(adviceFor({ ...file, isDeleted: true, uses: [use] }).text).toBe('You deleted a.rb, but 1 place still uses it. It will break:')
     expect(adviceFor({ ...file, isDeleted: true, uses: [use], movedTo: 'shared/a.rb' })).toEqual({
       level: 'green',
-      text: 'Moved to shared/a.rb. Callers still work.',
+      text: 'You moved a.rb to shared/a.rb. Callers still work.',
     })
   })
 })
@@ -163,11 +165,11 @@ describe('advice', () => {
 describe('package_todo.yml', () => {
   const yaml = (file: string, type = 'dependency') =>
     `---\n".":\n  "::Pricing::Quote":\n    violations:\n    - ${type}\n    files:\n    - ${file}\n`
-  const rule = 'Pricing::Quote (undeclared, from the root package)'
+  const rule = "Pricing::Quote from the root package, which it doesn't depend on"
 
   test('labels rule breaks in plain words', () => {
     expect(Object.keys(parseTodo(yaml('a.rb'))).map(ruleLabel)).toEqual([rule])
-    expect(Object.keys(parseTodo(yaml('a.rb', 'privacy'))).map(ruleLabel)).toEqual(['Pricing::Quote (private, from the root package)'])
+    expect(Object.keys(parseTodo(yaml('a.rb', 'privacy'))).map(ruleLabel)).toEqual(['Pricing::Quote, which is private to the root package'])
   })
 
   test('tells moved, new and fixed rule breaks apart', () => {
@@ -175,11 +177,6 @@ describe('package_todo.yml', () => {
     expect(moved).toEqual({ added: 0, fixed: 0, moved: 1, items: [{ kind: 'moved', rule, from: 'voucher_builder.rb', file: 'steps/build_voucher.rb' }] })
     expect(diffTodo({}, parseTodo(yaml('a.rb'))).items).toEqual([{ kind: 'new', rule, file: 'a.rb' }])
     expect(diffTodo(parseTodo(yaml('a.rb')), {}).fixed).toBe(1)
-  })
-
-  test('advises from the change', () => {
-    expect(todoAdvice({ added: 1, fixed: 0, moved: 0, items: [] }).level).toBe('red')
-    expect(todoAdvice({ added: 0, fixed: 0, moved: 3, items: [] }).text).toBe('Nothing to do.')
   })
 })
 

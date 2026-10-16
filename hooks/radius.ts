@@ -155,18 +155,22 @@ export const shouldList = (file: FileBlast): boolean =>
 
 export type Advice = { level: 'red' | 'yellow' | 'green'; text: string }
 
+const places = (n: number) => (n === 1 ? '1 place' : `${n} places`)
+
+// One plain sentence per file; the callers listed under it finish it.
 export const adviceFor = (file: FileBlast): Advice => {
-  if (file.movedTo) return { level: 'green', text: `Moved to ${file.movedTo}. Callers still work.` }
-  const elsewhere = file.uses.length > 0 || file.repoUses.length > 0
-  if (file.isDeleted && elsewhere) return { level: 'red', text: 'Deleted, but still used. Those lines will break.' }
-  if (file.isDeleted) return { level: 'green', text: 'Deleted, and nothing else used it. Safe.' }
-  if (file.repoUses.length > 0) {
-    return { level: 'red', text: 'Used in other repos. Check them before you release.' }
+  const name = file.path.split('/').pop() ?? file.path
+  if (file.movedTo) return { level: 'green', text: `You moved ${name} to ${file.movedTo}. Callers still work.` }
+  const count = file.uses.length + file.repoUses.reduce((n, r) => n + r.uses.length, 0)
+  if (file.isDeleted && count > 0) return { level: 'red', text: `You deleted ${name}, but ${places(count)} still ${count === 1 ? 'uses' : 'use'} it. ${count === 1 ? 'It' : 'They'} will break:` }
+  if (file.isDeleted) return { level: 'green', text: `You deleted ${name}. Nothing else used it.` }
+  const what = file.changed.length > 0 ? `${file.changed.join(', ')} in ${name}` : name
+  if (file.repoUses.length > 0) return { level: 'red', text: `You changed ${what}. Other repos use it. Check them before you release:` }
+  if (count > 0) {
+    return { level: 'yellow', text: `You changed ${what}. ${places(count)} ${count === 1 ? 'calls' : 'call'} it. Run their specs:` }
   }
-  if (file.uses.length > 0) return { level: 'yellow', text: 'A change can break these lines. Run their specs.' }
-  const who = file.visibleTo.map(pkg => (pkg === '.' ? 'the root package' : pkg))
-  const subject = who.length === 1 ? `${who[0]} can` : `${who.join(', ')} can`
-  return { level: 'green', text: `${subject.charAt(0).toUpperCase()}${subject.slice(1)} use it, but nothing does yet. Check it needs to be public.` }
+  const who = file.visibleTo.map(pkg => (pkg === '.' ? 'the root package' : pkg)).join(', ')
+  return { level: 'green', text: `${name} is public to ${who}, but nothing uses it yet. Check it needs to be public.` }
 }
 
 const RISK = { red: 0, yellow: 1, green: 2 }
@@ -217,9 +221,9 @@ export const ruleLabel = (key: string): string => {
   const [target = '', constant = '', type = ''] = key.split('\t')
   const owner = target === '.' ? 'the root package' : target
   const name = constant.replace(/^::/, '')
-  if (type === 'privacy') return `${name} (private, from ${owner})`
-  if (type === 'dependency') return `${name} (undeclared, from ${owner})`
-  return `${name} (${type}, from ${owner})`
+  if (type === 'privacy') return `${name}, which is private to ${owner}`
+  if (type === 'dependency') return `${name} from ${owner}, which it doesn't depend on`
+  return `${name} from ${owner} (${type})`
 }
 
 const shortPath = (path: string, from?: string) => {
@@ -251,12 +255,6 @@ export const diffTodo = (before: Record<string, string[]>, after: Record<string,
 
 export const addTodo = (a: TodoChange | undefined, b: TodoChange): TodoChange =>
   a ? { added: a.added + b.added, fixed: a.fixed + b.fixed, moved: a.moved + b.moved, items: [...a.items, ...b.items] } : b
-
-export const todoAdvice = (todo: TodoChange): Advice => {
-  if (todo.added > 0) return { level: 'red', text: 'Fix them, or explain why in the PR.' }
-  if (todo.fixed > 0) return { level: 'green', text: 'Nothing to do.' }
-  return { level: 'green', text: 'Nothing to do.' }
-}
 
 export type ChangedLines = { added: number[]; removed: number[] }
 
