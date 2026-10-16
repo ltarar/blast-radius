@@ -25,7 +25,6 @@ import {
   repoOf,
   ruleLabel,
   todoAdvice,
-  reposMentioned,
   shouldList,
 } from './radius'
 
@@ -93,12 +92,8 @@ describe('names', () => {
 })
 
 describe('repos', () => {
-  test('finds repos a shell command works in', () => {
-    const names = ['api', 'api-workers', 'web']
+  test('finds the repo a file is in', () => {
     const root = '/Users/me/code'
-    expect(reposMentioned('cd api && bundle exec rspec', names, root)).toEqual(['api'])
-    expect(reposMentioned('cd ~/code/api-workers; ls', names, root)).toEqual(['api-workers'])
-    expect(reposMentioned('git status', names, root)).toEqual([])
     expect(repoOf('/Users/me/code/api/app/a.rb', root)).toBe('api')
     expect(repoOf('/tmp/api/app/a.rb', root)).toBeUndefined()
   })

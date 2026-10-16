@@ -30,7 +30,6 @@ import {
   parseGrepHits,
   parsePackage,
   repoOf,
-  reposMentioned,
   shouldList,
 } from './radius'
 import type { Member, PackageInfo, Published } from './radius'
@@ -360,12 +359,6 @@ export const register: Register = (on, options) => {
     const ran = await next(e)
     const repo = repoOf(e.file_path, await reposRoot($))
     if (repo) await addFocus($, [repo])
-    return ran
-  }).catch(($, e, next) => next(e))
-
-  on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
-    const ran = await next(e)
-    await addFocus($, reposMentioned(e.command, await gitRepos($), await reposRoot($)))
     return ran
   }).catch(($, e, next) => next(e))
 

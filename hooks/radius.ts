@@ -10,16 +10,6 @@ export const expandHome = (path: string, home: string): string =>
 export const repoOf = (path: string, root: string): string | undefined =>
   path.startsWith(`${root}/`) ? path.slice(root.length + 1).split('/')[0] || undefined : undefined
 
-const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-
-// Repos a shell command works in: `cd api`, `git -C web`, or a path under the repos root.
-export const reposMentioned = (command: string, repoNames: string[], root: string): string[] => {
-  const folder = escapeRegExp(root.split('/').pop() ?? '')
-  return repoNames.filter(name =>
-    new RegExp(`(\\bcd\\s+|-C\\s+|${folder}/)(~/${folder}/|\\./)?${escapeRegExp(name)}(/|\\s|$|&|;)`).test(command),
-  )
-}
-
 export const gemNameOf = (gemspec: string): string | undefined => gemspec.match(/\.name\s*=\s*["']([^"']+)["']/)?.[1]
 
 export const npmNameOf = (packageJson: string): string | undefined => {

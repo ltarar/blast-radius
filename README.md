@@ -53,8 +53,7 @@ up before review, not after.
 | `/blast-radius all` | Shows every repo with changes |
 | `/blast-radius clear` | Clears focus back to the current repo |
 
-A repo joins focus by itself when Claude edits a file in it, or runs a command
-in it such as `cd api`. The status line carries a one-line summary.
+A repo joins focus by itself when Claude edits a file in it. The status line carries a one-line summary.
 
 ## How it works
 
