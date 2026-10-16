@@ -54,6 +54,23 @@ describe('what stays quiet', () => {
   })
 })
 
+describe('a class moved up a namespace', () => {
+  const base = (namespace: string) => `module Leads\n${namespace ? `  module ${namespace}\n` : ''}    class BaseStep\n    end\n${namespace ? '  end\n' : ''}end\n`
+  const nested = 'module Leads\n  module Steps\n    class Assign < BaseStep\n    end\n  end\nend\n'
+  const qualified = 'class Assign < Leads::Steps::BaseStep\nend\n'
+  const moved = (step: string) =>
+    repoOf('api', { 'app/leads/base_step.rb': base(''), 'app/leads/steps/assign.rb': step }, { 'app/leads/steps/base_step.rb': base('Steps'), 'app/leads/steps/assign.rb': step })
+
+  test('stays quiet when Ruby still finds it by looking further out', async () => {
+    expect(await findBreaks(moved(nested), ['app/leads/steps/base_step.rb', 'app/leads/base_step.rb'], [])).toEqual([])
+  })
+
+  test('breaks when the reference names the old place in full', async () => {
+    const [found] = await findBreaks(moved(qualified), ['app/leads/steps/base_step.rb', 'app/leads/base_step.rb'], [])
+    expect(found?.text).toBe('You removed Steps::BaseStep, but 1 place still uses it. It will break:')
+  })
+})
+
 describe('what breaks', () => {
   test('a new required argument, with the calls that no longer fit, here and in other repos', async () => {
     const repo = pricing({ 'lib/pricing/quote.rb': quote('items, currency:, rounding:') })

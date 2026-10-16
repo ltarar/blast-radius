@@ -33,7 +33,8 @@ async function isDefinedAnywhere(repo: Repo, name: string) {
 
 // Lines that refer to `target`, a constant, optionally followed by a method call such as `.call`.
 // A reference counts only when Ruby would resolve it to `target`, not to a closer constant of the same name.
-async function referencesTo(repo: Repo, target: string, suffix = '') {
+// When `target` is gone, Ruby looks further out, so a reference that finds another constant of that name still works.
+async function referencesTo(repo: Repo, target: string, suffix = '', isGone = false) {
   const shortName = target.split('::').pop() ?? target
   const defined = new Map<string, Promise<boolean>>()
   const exists = (name: string) => {
@@ -52,7 +53,8 @@ async function referencesTo(repo: Repo, target: string, suffix = '') {
       const at = candidates.indexOf(target)
       if (at === -1) continue
       const shadowed = await Promise.all(candidates.slice(0, at).map(exists))
-      if (!shadowed.some(Boolean)) {
+      const foundFurtherOut = isGone && (await Promise.all(candidates.slice(at + 1).map(exists))).some(Boolean)
+      if (!shadowed.some(Boolean) && !foundFurtherOut) {
         found.push(hit)
         break
       }
@@ -70,8 +72,8 @@ async function instanceCalls(repo: Repo, owner: string, name: string) {
 
 async function callsOf(repo: Repo, change: RubyChange) {
   if (change.kind === 'worker-arguments' || change.kind === 'worker-alias-removed') return []
-  if (change.kind === 'worker-removed') return referencesTo(repo, change.worker)
-  if (change.kind === 'constant-removed') return referencesTo(repo, change.constant)
+  if (change.kind === 'worker-removed') return referencesTo(repo, change.worker, '', true)
+  if (change.kind === 'constant-removed') return referencesTo(repo, change.constant, '', true)
   const { owner, name, isClassMethod } = change.method
   if (!isClassMethod && name === 'initialize') return referencesTo(repo, owner, '\\.new')
   if (isClassMethod) return referencesTo(repo, owner, `\\.${name.replace(/[?!]/g, '\\$&')}`)
