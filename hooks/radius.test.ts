@@ -138,10 +138,8 @@ describe('advice', () => {
   })
 
   test('puts the riskiest files first', () => {
-    const yellow = { ...file, path: 'yellow.rb', uses: [use] }
-    const red = { ...file, path: 'red.rb', isDeleted: true, uses: [use] }
-    const green = { ...file, path: 'green.rb', visibleTo: ['.'] }
-    expect(byRisk([green, yellow, red]).map(f => f.path)).toEqual(['red.rb', 'yellow.rb', 'green.rb'])
+    const items = [{ level: 'green' as const }, { level: 'red' as const }, { level: 'yellow' as const }, { level: 'red' as const }]
+    expect(byRisk(items).map(item => item.level)).toEqual(['red', 'red', 'yellow', 'green'])
   })
 
   test('advises from usage and deletion', () => {

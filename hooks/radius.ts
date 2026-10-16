@@ -173,10 +173,11 @@ export const adviceFor = (file: FileBlast): Advice => {
   return { level: 'green', text: `${name} is public to ${who}, but nothing uses it yet. Check it needs to be public.` }
 }
 
-const RISK = { red: 0, yellow: 1, green: 2 }
+export type Level = Advice['level']
 
-export const byRisk = (files: FileBlast[]): FileBlast[] =>
-  [...files].sort((a, b) => RISK[adviceFor(a).level] - RISK[adviceFor(b).level])
+const RISK: Record<Level, number> = { red: 0, yellow: 1, green: 2 }
+
+export const byRisk = <T extends { level: Level }>(items: T[]): T[] => [...items].sort((a, b) => RISK[a.level] - RISK[b.level])
 
 export const isTodoFile = (path: string): boolean => path === 'package_todo.yml' || path.endsWith('/package_todo.yml')
 

@@ -32,7 +32,7 @@ import {
   repoOf,
   shouldList,
 } from './radius'
-import type { Member, PackageInfo, Published } from './radius'
+import type { Level, Member, PackageInfo, Published } from './radius'
 
 const PANE = 'blast-radius'
 const MAX_CHECKED = 30
@@ -301,8 +301,10 @@ function paneLines(list: RepoBlast[]): Line[] {
   return list.flatMap((one, i) => [
     ...(i > 0 ? [BLANK] : []),
     { text: `💥 ${one.repo} · ${one.branch} · ${plural(one.fileCount, 'file')} changed`, bold: true },
-    ...byRisk(one.listed).flatMap(fileLines),
-    ...todoLines(one),
+    // Packwerk breaks sort with the files, so every 🔴 comes before any 🟡.
+    ...byRisk([...one.listed.map(f => ({ level: adviceFor(f).level, lines: fileLines(f) })), ...todoBlock(one)]).flatMap(
+      block => block.lines,
+    ),
     ...(one.quiet > 0
       ? [BLANK, { text: `🟢 ${plural(one.quiet, 'other changed file')} ${one.quiet === 1 ? "isn't" : "aren't"} used anywhere else.`, color: 'green' as const }]
       : []),
@@ -325,17 +327,18 @@ function fileLines(f: FileBlast): Line[] {
   ]
 }
 
-function todoLines(one: RepoBlast): Line[] {
+function todoBlock(one: RepoBlast): { level: Level; lines: Line[] }[] {
   if (!one.todo) return []
   const added = one.todo.items.filter(item => item.kind === 'new')
   if (added.length > 0) {
-    return [
+    const lines = [
       BLANK,
       ...added.slice(0, MAX_CALLERS).map(item => ({ text: `🔴 ${item.file.split('/').pop()} now uses ${item.rule}.`, color: 'red' as const })),
       ...(added.length > MAX_CALLERS ? [{ text: `   and ${added.length - MAX_CALLERS} more Packwerk rule breaks`, dim: true }] : []),
     ]
+    return [{ level: 'red', lines }]
   }
-  return one.todo.fixed > 0 ? [BLANK, { text: `⚪ You fixed ${plural(one.todo.fixed, 'Packwerk rule break')}.`, dim: true }] : []
+  return one.todo.fixed > 0 ? [{ level: 'green', lines: [BLANK, { text: `⚪ You fixed ${plural(one.todo.fixed, 'Packwerk rule break')}.`, dim: true }] }] : []
 }
 
 function summary(list: RepoBlast[]) {
