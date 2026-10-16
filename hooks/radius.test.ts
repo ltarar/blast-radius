@@ -2,6 +2,7 @@ import { describe, expect, test } from 'claude-code/testing'
 
 import {
   adviceFor,
+  byRisk,
   changedFiles,
   changedMembers,
   constantOf,
@@ -135,6 +136,13 @@ describe('advice', () => {
     expect(shouldList(file)).toBe(false)
     expect(shouldList({ ...file, uses: [use] })).toBe(true)
     expect(shouldList({ ...file, visibleTo: ['.'] })).toBe(true)
+  })
+
+  test('puts the riskiest files first', () => {
+    const yellow = { ...file, path: 'yellow.rb', uses: [use] }
+    const red = { ...file, path: 'red.rb', isDeleted: true, uses: [use] }
+    const green = { ...file, path: 'green.rb', visibleTo: ['.'] }
+    expect(byRisk([green, yellow, red]).map(f => f.path)).toEqual(['red.rb', 'yellow.rb', 'green.rb'])
   })
 
   test('advises from usage and deletion', () => {

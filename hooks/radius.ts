@@ -169,6 +169,11 @@ export const adviceFor = (file: FileBlast): Advice => {
   return { level: 'green', text: `${subject.charAt(0).toUpperCase()}${subject.slice(1)} use it, but nothing does yet. Check it needs to be public.` }
 }
 
+const RISK = { red: 0, yellow: 1, green: 2 }
+
+export const byRisk = (files: FileBlast[]): FileBlast[] =>
+  [...files].sort((a, b) => RISK[adviceFor(a).level] - RISK[adviceFor(b).level])
+
 export const isTodoFile = (path: string): boolean => path === 'package_todo.yml' || path.endsWith('/package_todo.yml')
 
 const unquote = (text: string) => text.trim().replace(/:$/, '').replace(/^["']|["']$/g, '')

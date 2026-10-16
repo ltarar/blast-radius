@@ -5,6 +5,7 @@ import type { Consumer, FileBlast, RepoBlast, TodoChange, Usage } from '../types
 import {
   addTodo,
   adviceFor,
+  byRisk,
   diffTodo,
   expandHome,
   isTodoFile,
@@ -36,8 +37,9 @@ import type { Member, PackageInfo, Published } from './radius'
 
 const PANE = 'blast-radius'
 const MAX_CHECKED = 30
-// The pane scrolls, so it stays short enough to leave the transcript in view.
-const MAX_PANE_ROWS = 12
+// Inline panes can't be scrolled on the main screen, so callers are trimmed to keep most results within this.
+const MAX_PANE_ROWS = 15
+const MAX_CALLERS = 3
 const repos = atom({ plugin: 'blast-radius', key: 'repos' } as const, [])
 const focus = atom({ plugin: 'blast-radius', key: 'focus' } as const, [])
 const showAll = atom({ plugin: 'blast-radius', key: 'showAll' } as const, false)
@@ -300,11 +302,54 @@ function todoSummary(todo: TodoChange) {
   return `${parts.join(', ')}${todo.added === 0 ? ', none new' : ''}`
 }
 
-function paneRows(list: RepoBlast[]) {
-  const perRepo = list.map(
-    one => 7 + Math.min(one.todo?.added ?? 0, 5) + one.listed.reduce((n, f) => n + 5 + Math.min(f.uses.length, 6) + f.repoUses.length, 0),
-  )
-  return Math.min(MAX_PANE_ROWS, Math.max(6, perRepo.reduce((a, b) => a + b, 0)))
+// `aside` is drawn dim after the text, on the same row.
+type Line = { text: string; aside?: string; color?: 'red' | 'yellow' | 'green'; bold?: boolean; dim?: boolean }
+
+const BLANK: Line = { text: ' ' }
+
+function paneLines(list: RepoBlast[]): Line[] {
+  if (list.length === 0) return [{ text: 'No changes in focus. Run /blast-radius <repo> to add a repo, or /blast-radius all.', dim: true }]
+  return list.flatMap((one, i) => [
+    ...(i > 0 ? [BLANK] : []),
+    { text: `💥 ${one.repo} · ${one.branch} · ${plural(one.fileCount, 'file')} changed`, bold: true },
+    ...byRisk(one.listed).flatMap(f => fileLines(f)),
+    BLANK,
+    { text: `🟢 ${plural(one.quiet, 'file')} used only where they live · 🧪 ${plural(one.tests, 'test')}`, color: 'green' as const },
+    ...todoLines(one),
+    ...(consumerLine(one) ? [{ text: `🌐 ${consumerLine(one)}`, dim: true }] : []),
+  ])
+}
+
+function fileLines(f: FileBlast): Line[] {
+  const advice = adviceFor(f)
+  const dot = { red: '🔴', yellow: '🟡', green: '🟢' }[advice.level]
+  const name = `${f.path.split('/').pop()}${f.movedTo ? ' (moved)' : f.isDeleted ? ' (deleted)' : ''}`
+  return [
+    BLANK,
+    { text: `${dot} ${name}`, aside: `  ${f.path.split('/').slice(0, -1).join('/')}/`, bold: true },
+    { text: `   💡 ${f.changed.length > 0 ? `Changed ${f.changed.join(', ')}. ` : ''}${advice.text}`, color: COLORS[advice.level] },
+    ...f.uses.slice(0, MAX_CALLERS).map(use => ({ text: `   ${use.path}:${use.line} ${use.code}`, dim: true })),
+    ...(f.uses.length > MAX_CALLERS ? [{ text: `   and ${f.uses.length - MAX_CALLERS} more`, dim: true }] : []),
+    ...f.repoUses.map(r => ({
+      text: `   ${r.repo}: ${plural(r.uses.length, 'place')}${r.testUses > 0 ? ` (+${r.testUses} in specs)` : ''}${r.uses[0] ? `, e.g. ${r.uses[0].path}:${r.uses[0].line}` : ''}`,
+      dim: true,
+    })),
+  ]
+}
+
+function todoLines(one: RepoBlast): Line[] {
+  if (!one.todo || one.todo.items.length === 0) return []
+  const todo = one.todo
+  return [
+    {
+      text: `${todo.added > 0 ? '🔴' : '⚪'} Packwerk rule breaks: ${todoSummary(todo)}. ${todoAdvice(todo).text}`,
+      ...(todo.added > 0 ? { color: 'red' as const } : {}),
+    },
+    ...todo.items
+      .filter(item => item.kind === 'new')
+      .slice(0, 5)
+      .map(item => ({ text: `   ${item.rule} in ${item.file}`, dim: true })),
+  ]
 }
 
 function summary(list: RepoBlast[]) {
@@ -343,7 +388,7 @@ export const register: Register = (on, options) => {
     } else await update($, showAll, () => false)
 
     await refresh($)
-    await $.ui.open({ id: PANE, title: 'Blast radius', rows: paneRows(await read($, repos)) })
+    await $.ui.open({ id: PANE, title: 'Blast radius', rows: Math.min(MAX_PANE_ROWS, paneLines(await read($, repos)).length) })
     const shown = await read($, showAll)
     return { text: shown ? 'Blast radius: all repos.' : `Blast radius: ${[...(await focusedRepos($))].join(', ') || 'no repos in focus yet'}.` }
   })
@@ -370,72 +415,17 @@ export const register: Register = (on, options) => {
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Text } = $.ui.resolve(e)
-    const list = await read($, repos)
-
-    if (list.length === 0) {
-      return <Text dimColor>No changes in focus. Run /blast-radius {"<repo>"} to add a repo, or /blast-radius all.</Text>
-    }
-
     return (
       <Box flexDirection="column">
-        {list.map(one => (
-          <Box flexDirection="column" marginBottom={1}>
-            <Text bold>
-              💥 {one.repo} · {one.branch} · {plural(one.fileCount, 'file')} changed
-            </Text>
-            {one.listed.map(f => {
-              const advice = adviceFor(f)
-              const dot = { red: '🔴', yellow: '🟡', green: '🟢' }[advice.level]
-              return (
-                <Box flexDirection="column" marginTop={1}>
-                  <Text bold>
-                    {dot} {f.path.split('/').pop()}
-                    {f.movedTo ? ' (moved)' : f.isDeleted ? ' (deleted)' : ''}
-                  </Text>
-                  <Text dimColor>   {f.path.split('/').slice(0, -1).join('/')}/</Text>
-                  {f.changed.length > 0 && <Text>   changed: {f.changed.join(', ')}</Text>}
-                  <Text color={COLORS[advice.level]}>   💡 {advice.text}</Text>
-                  {f.uses.slice(0, 5).map(use => (
-                    <Text dimColor>
-                      {'   '}
-                      {use.path}:{use.line} {use.code}
-                    </Text>
-                  ))}
-                  {f.uses.length > 5 && <Text dimColor>   and {f.uses.length - 5} more</Text>}
-                  {f.repoUses.map(r => (
-                    <Text dimColor>
-                      {'   '}
-                      {r.repo}: {plural(r.uses.length, 'place')}
-                      {r.testUses > 0 ? ` (+${r.testUses} in specs)` : ''}
-                      {r.uses[0] ? `, e.g. ${r.uses[0].path}:${r.uses[0].line}` : ''}
-                    </Text>
-                  ))}
-                </Box>
-              )
-            })}
-            <Box flexDirection="column" marginTop={1}>
-              <Text color="green">
-                🟢 {plural(one.quiet, 'file')} used only where they live · 🧪 {plural(one.tests, 'test')}
+        {paneLines(await read($, repos)).map(line => (
+          <Text bold={line.bold} dimColor={line.dim} color={line.color}>
+            {line.text}
+            {line.aside && (
+              <Text bold={false} dimColor>
+                {line.aside}
               </Text>
-              {one.todo && one.todo.items.length > 0 && (
-                <Box flexDirection="column">
-                  <Text color={one.todo.added > 0 ? 'red' : undefined}>
-                    {one.todo.added > 0 ? '🔴' : '⚪'} Packwerk rule breaks: {todoSummary(one.todo)}. {todoAdvice(one.todo).text}
-                  </Text>
-                  {one.todo.items
-                    .filter(item => item.kind === 'new')
-                    .slice(0, 5)
-                    .map(item => (
-                      <Text dimColor>
-                        {'   '}
-                        {item.rule} in {item.file}
-                      </Text>
-                    ))}
-                </Box>
-              )}
-              {consumerLine(one) && <Text dimColor>🌐 {consumerLine(one)}</Text>}
-            </Box>
-          </Box>
+            )}
+          </Text>
         ))}
       </Box>
     )
