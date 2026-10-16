@@ -1,48 +1,21 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Consumer, FileBlast, RepoBlast, TodoChange, Usage } from '../types'
-import {
-  addTodo,
-  adviceFor,
-  byRisk,
-  diffTodo,
-  expandHome,
-  isTodoFile,
-  parseTodo,
-  changedFiles,
-  changedMembers,
-  constantOf,
-  consumersOf,
-  dependentsOf,
-  gemNameOf,
-  importPattern,
-  isPrivate,
-  isCommentLine,
-  isTest,
-  languageOf,
-  memberLabel,
-  memberPattern,
-  moduleTailOf,
-  npmNameOf,
-  ownerOf,
-  parseDiffLines,
-  parseGrepHits,
-  parsePackage,
-  repoOf,
-  shouldList,
-} from './radius'
-import type { Level, Member, PackageInfo, Published } from './radius'
+import type { Break, Consumer, RepoBlast } from '../types'
+import { findBreaks, todoOf } from './breaks'
+import type { Repo } from './breaks'
+import { byRisk, changedFiles, consumersOf, expandHome, gemNameOf, isCommentLine, npmNameOf, parseGrepHits, repoOf } from './radius'
+import type { Level, Published } from './radius'
 
 const PANE = 'blast-radius'
-const MAX_CHECKED = 30
 // Inline panes can't be scrolled on the main screen, so callers are trimmed to keep most results within this.
 const MAX_PANE_ROWS = 15
 const MAX_CALLERS = 3
 const repos = atom({ plugin: 'blast-radius', key: 'repos' } as const, [])
 const focus = atom({ plugin: 'blast-radius', key: 'focus' } as const, [])
 const showAll = atom({ plugin: 'blast-radius', key: 'showAll' } as const, false)
-const fileCache = new Map<string, FileBlast>()
+// The last check of each repo, kept while its diff stays the same, since the pane re-checks after every turn.
+const lastCheck = new Map<string, { diff: string; blast: RepoBlast }>()
 
 let rootSetting = ''
 let root: Promise<string> | undefined
@@ -74,16 +47,6 @@ async function branchOf($: EngineInterface, repoRoot: string) {
   return `detached at ${(await git($, repoRoot, ['rev-parse', '--short', 'HEAD'])) ?? '?'}`
 }
 
-async function loadPackages($: EngineInterface, repoRoot: string) {
-  const found = await git($, repoRoot, ['ls-files', '--cached', '--others', '--exclude-standard', '*package.yml', 'package.yml'])
-  const packages: Record<string, PackageInfo> = {}
-  for (const path of (found ?? '').split('\n').filter(p => p === 'package.yml' || p.endsWith('/package.yml'))) {
-    const yaml = await readIfThere($, `${repoRoot}/${path}`)
-    if (yaml !== undefined) packages[path === 'package.yml' ? '.' : path.slice(0, -'/package.yml'.length)] = parsePackage(yaml)
-  }
-  return packages
-}
-
 async function publishedBy($: EngineInterface, repoRoot: string): Promise<Published> {
   const gemspec = (await $.fs.list(repoRoot)).find(entry => entry.name.endsWith('.gemspec'))
   const packageJson = await readIfThere($, `${repoRoot}/package.json`)
@@ -93,137 +56,46 @@ async function publishedBy($: EngineInterface, repoRoot: string): Promise<Publis
   }
 }
 
-async function searchUses($: EngineInterface, repoRoot: string, name: string, isRuby: boolean, members: Member[]) {
-  if (!isRuby) return parseGrepHits((await git($, repoRoot, ['grep', '-n', '-E', '--untracked', '-e', importPattern(name)])) ?? '')
-
-  const hits: Usage[] = []
-  const shortName = name.split('::').pop() ?? name
-  const mentioning = members.some(m => m.kind === 'method')
-    ? ((await git($, repoRoot, ['grep', '-l', '-w', '-F', '--untracked', '-e', shortName])) ?? '').split('\n').filter(Boolean)
-    : []
-  for (const member of members) {
-    if (member.kind === 'method' && mentioning.length === 0) continue
-    const files = member.kind === 'method' ? ['--', ...mentioning] : []
-    const found = await git($, repoRoot, ['grep', '-n', '-E', '--untracked', '-e', memberPattern(name, member), ...files])
-    hits.push(...parseGrepHits(found ?? ''))
-  }
-  const seen = new Set<string>()
-  return hits.filter(hit => !isCommentLine(hit.code) && !seen.has(`${hit.path}:${hit.line}`) && seen.add(`${hit.path}:${hit.line}`))
-}
-
-async function checkFile(
-  $: EngineInterface,
-  repoRoot: string,
-  base: string,
-  path: string,
-  packages: Record<string, PackageInfo> | undefined,
-  consumers: Consumer[],
-): Promise<FileBlast | undefined> {
-  const exists = await $.fs.exists(`${repoRoot}/${path}`)
-  const stamp = exists ? (await $.fs.stat(`${repoRoot}/${path}`)).mtimeMs : 'gone'
-  const key = `${repoRoot}:${path}:${stamp}:${base}`
-  const cached = fileCache.get(key)
-  if (cached) return cached
-
-  const isRuby = languageOf(path) === 'ruby'
-  const before = await git($, repoRoot, ['show', `${base}:${path}`])
-  const after = exists ? await $.fs.read(`${repoRoot}/${path}`) : undefined
-  const source = after ?? before
-  const name = isRuby ? (source ? constantOf(source) : undefined) : moduleTailOf(path)
-  if (!name) return undefined
-
-  const whole: Member[] = [{ kind: 'whole', name: '' }]
-  const members =
-    isRuby && before !== undefined && after !== undefined
-      ? changedMembers(before, after, parseDiffLines((await git($, repoRoot, ['diff', '-U0', base, '--', path])) ?? ''))
-      : whole
-
-  const pkg = packages ? ownerOf(path, packages) : undefined
-  if (members.length === 0) {
-    const file: FileBlast = { path, name, changed: [], isDeleted: false, visibleTo: [], uses: [], testUses: 0, repoUses: [] }
-    fileCache.set(key, file)
-    return file
-  }
-
-  const outside = (await searchUses($, repoRoot, name, isRuby, members)).filter(
-    hit => hit.path !== path && (!packages || ownerOf(hit.path, packages) !== pkg),
-  )
-  const repoUses = []
-  for (const consumer of consumers) {
-    const hits = await searchUses($, `${await reposRoot($)}/${consumer.repo}`, name, isRuby, members)
-    if (hits.length > 0) {
-      repoUses.push({
-        repo: consumer.repo,
-        uses: hits.filter(hit => !isTest(hit.path)),
-        testUses: hits.filter(hit => isTest(hit.path)).length,
-      })
-    }
-  }
-
-  const file: FileBlast = {
-    path,
+// A repo on disk, as the checks see it; each file is read at most once per check.
+function repoAt($: EngineInterface, name: string, repoRoot: string, base: string): Repo {
+  const files = new Map<string, Promise<string | undefined>>()
+  return {
     name,
-    changed: members.filter(m => m.kind !== 'whole').map(memberLabel),
-    isDeleted: !exists,
-    visibleTo: packages && pkg ? dependentsOf(pkg, packages) : [],
-    uses: outside.filter((hit: Usage) => !isTest(hit.path)),
-    testUses: outside.filter((hit: Usage) => isTest(hit.path)).length,
-    repoUses,
+    read: path => {
+      if (!files.has(path)) files.set(path, readIfThere($, `${repoRoot}/${path}`))
+      return files.get(path) as Promise<string | undefined>
+    },
+    readBefore: path => git($, repoRoot, ['show', `${base}:${path}`]),
+    grep: async (pattern, only = []) => {
+      const found = await git($, repoRoot, ['grep', '-n', '-E', '--untracked', '-e', pattern, ...(only.length > 0 ? ['--', ...only] : [])])
+      return parseGrepHits(found ?? '').filter(hit => !isCommentLine(hit.code))
+    },
+    filesMentioning: async word => ((await git($, repoRoot, ['grep', '-l', '-w', '-F', '--untracked', '-e', word])) ?? '').split('\n').filter(Boolean),
   }
-  fileCache.set(key, file)
-  return file
 }
 
 async function blastOfRepo($: EngineInterface, repo: string, consumers: Consumer[]): Promise<RepoBlast | undefined> {
-  const repoRoot = `${await reposRoot($)}/${repo}`
+  const rootDir = await reposRoot($)
+  const repoRoot = `${rootDir}/${repo}`
   const base = await baseOf($, repoRoot)
   const diff = await git($, repoRoot, ['diff', '--name-status', '--no-renames', base])
   const untracked = await git($, repoRoot, ['ls-files', '--others', '--exclude-standard'])
   const files = changedFiles(diff ?? '', untracked ?? '')
   if (files.length === 0) return undefined
+  const fullDiff = `${await git($, repoRoot, ['diff', base])}\n${untracked}\n${consumers.map(c => c.repo).join(',')}`
+  const last = lastCheck.get(repo)
+  if (last?.diff === fullDiff) return last.blast
 
-  const packages = await loadPackages($, repoRoot)
-  const usesPackwerk = '.' in packages
+  const here = repoAt($, repo, repoRoot, base)
+  const others = consumers.map(consumer => repoAt($, consumer.repo, `${rootDir}/${consumer.repo}`, 'HEAD'))
   const blast: RepoBlast = {
     repo,
     branch: await branchOf($, repoRoot),
     fileCount: files.length,
-    usesPackwerk,
-    listed: [],
-    quiet: 0,
-    tests: 0,
-    notChecked: 0,
-    consumers,
+    breaks: await findBreaks(here, files, others),
+    todo: await todoOf(here, files),
   }
-
-  // Class names defined by the branch's files now, so a deleted file whose class moved isn't reported as broken.
-  const definitions: Record<string, string> = {}
-  for (const path of files) {
-    if (languageOf(path) !== 'ruby' || isTest(path)) continue
-    const source = await readIfThere($, `${repoRoot}/${path}`)
-    const name = source ? constantOf(source) : undefined
-    if (name) definitions[name] = path
-  }
-
-  let checked = 0
-  for (const path of files) {
-    if (isTodoFile(path)) {
-      const before = (await git($, repoRoot, ['show', `${base}:${path}`])) ?? ''
-      const after = (await readIfThere($, `${repoRoot}/${path}`)) ?? ''
-      blast.todo = addTodo(blast.todo, diffTodo(parseTodo(before), parseTodo(after)))
-    } else if (isTest(path)) blast.tests++
-    else if (languageOf(path) === 'other' || checked >= MAX_CHECKED) blast.notChecked++
-    else if (usesPackwerk && isPrivate(path, packages)) blast.quiet++
-    else {
-      checked++
-      const found = await checkFile($, repoRoot, base, path, usesPackwerk ? packages : undefined, consumers).catch(() => undefined)
-      const movedTo = found?.isDeleted && found.name ? definitions[found.name] : undefined
-      const file = found && movedTo ? { ...found, movedTo } : found
-      if (!file) blast.notChecked++
-      else if (shouldList(file)) blast.listed.push(file)
-      else blast.quiet++
-    }
-  }
+  lastCheck.set(repo, { diff: fullDiff, blast })
   return blast
 }
 
@@ -280,19 +152,11 @@ async function refresh($: EngineInterface) {
 }
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
-const COLORS = { red: 'red', yellow: 'yellow', green: 'green' } as const
+const DOTS = { red: '🔴', yellow: '🟡' } as const
 
-function consumerLine(one: RepoBlast) {
-  const byVia = (via: Consumer['via']) => one.consumers.filter(c => c.via === via).map(c => c.repo)
-  const verb = (repos: string[], one: string, many: string) => `${repos.join(', ')} ${repos.length === 1 ? one : many}`
-  const parts = [
-    byVia('gem').length > 0 && verb(byVia('gem'), 'uses it as a gem', 'use it as a gem'),
-    byVia('npm').length > 0 && verb(byVia('npm'), 'uses it as an npm package', 'use it as an npm package'),
-  ].filter(Boolean)
-  return parts.length > 0 ? `${parts.join('. ')}.` : undefined
-}
+const problemCount = (one: RepoBlast) => one.breaks.length + (one.todo && one.todo.added > 0 ? 1 : 0)
 
-type Line = { text: string; color?: 'red' | 'yellow' | 'green'; bold?: boolean; dim?: boolean }
+type Line = { text: string; color?: Level; bold?: boolean; dim?: boolean }
 
 const BLANK: Line = { text: ' ' }
 
@@ -301,28 +165,22 @@ function paneLines(list: RepoBlast[]): Line[] {
   return list.flatMap((one, i) => [
     ...(i > 0 ? [BLANK] : []),
     { text: `💥 ${one.repo} · ${one.branch} · ${plural(one.fileCount, 'file')} changed`, bold: true },
-    // Packwerk breaks sort with the files, so every 🔴 comes before any 🟡.
-    ...byRisk([...one.listed.map(f => ({ level: adviceFor(f).level, lines: fileLines(f) })), ...todoBlock(one)]).flatMap(
-      block => block.lines,
-    ),
-    // Only when there is nothing else to say, so a quiet pane still shows it checked.
-    ...(one.listed.length === 0 && !one.todo?.added
-      ? [BLANK, { text: `🟢 Nothing else uses what you changed.`, color: 'green' as const }]
-      : []),
-    ...(consumerLine(one) ? [{ text: `🌐 ${consumerLine(one)}`, dim: true }] : []),
+    // Packwerk breaks sort with the rest, so every 🔴 comes before any 🟡.
+    ...byRisk([...one.breaks.map(b => ({ level: b.level, lines: breakLines(b) })), ...todoBlock(one)]).flatMap(block => block.lines),
+    ...(problemCount(one) === 0 ? [BLANK, { text: '🟢 Nothing in this branch breaks other code.', color: 'green' as const }] : []),
   ])
 }
 
-function fileLines(f: FileBlast): Line[] {
-  const advice = adviceFor(f)
-  const dot = { red: '🔴', yellow: '🟡', green: '🟢' }[advice.level]
+function breakLines(b: Break): Line[] {
   return [
     BLANK,
-    { text: `${dot} ${advice.text}`, color: COLORS[advice.level] },
-    ...f.uses.slice(0, MAX_CALLERS).map(use => ({ text: `   ${use.path}:${use.line}`, dim: true })),
-    ...(f.uses.length > MAX_CALLERS ? [{ text: `   and ${f.uses.length - MAX_CALLERS} more`, dim: true }] : []),
-    ...f.repoUses.map(r => ({
-      text: `   ${r.repo}: ${plural(r.uses.length, 'place')}${r.uses[0] ? `, e.g. ${r.uses[0].path}:${r.uses[0].line}` : ''}`,
+    { text: `${DOTS[b.level]} ${b.text}`, color: b.level },
+    ...(b.fix ? [{ text: `   💡 ${b.fix}`, color: b.level }] : []),
+    ...b.uses.slice(0, MAX_CALLERS).map(use => ({ text: `   ${use.path}:${use.line}`, dim: true })),
+    ...(b.uses.length > MAX_CALLERS ? [{ text: `   and ${b.uses.length - MAX_CALLERS} more`, dim: true }] : []),
+    ...(b.testUses > 0 ? [{ text: `   ${b.uses.length > 0 ? 'and ' : ''}${plural(b.testUses, 'line')} in specs`, dim: true }] : []),
+    ...b.repoUses.map(r => ({
+      text: `   ${r.repo}: ${plural(r.uses.length + r.testUses, 'place')}${r.uses[0] ? `, e.g. ${r.uses[0].path}:${r.uses[0].line}` : ''}`,
       dim: true,
     })),
   ]
@@ -344,7 +202,7 @@ function todoBlock(one: RepoBlast): { level: Level; lines: Line[] }[] {
 
 function summary(list: RepoBlast[]) {
   return list
-    .map(one => `💥 ${one.repo}: ${one.listed.length > 0 ? `${plural(one.listed.length, 'file')} to look at` : 'nothing reaches outside'} (${plural(one.fileCount, 'file')} changed)`)
+    .map(one => `💥 ${one.repo}: ${problemCount(one) === 0 ? 'nothing breaks' : `${plural(problemCount(one), 'thing')} can break`}`)
     .join(' · ')
 }
 

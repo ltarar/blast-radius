@@ -2,19 +2,17 @@ export type Usage = { path: string; line: number; code: string }
 
 export type RepoUses = { repo: string; uses: Usage[]; testUses: number }
 
-export type FileBlast = {
-  path: string
-  name?: string
-  changed: string[]
-  isDeleted: boolean
-  movedTo?: string
-  visibleTo: string[]
+export type Consumer = { repo: string; via: 'gem' | 'npm' }
+
+// One thing the branch breaks, said as a sentence, with the code it breaks.
+export type Break = {
+  level: 'red' | 'yellow'
+  text: string
+  fix?: string
   uses: Usage[]
   testUses: number
   repoUses: RepoUses[]
 }
-
-export type Consumer = { repo: string; via: 'gem' | 'npm' }
 
 export type TodoItem = { kind: 'new' | 'fixed' | 'moved'; rule: string; file: string; from?: string }
 
@@ -24,12 +22,7 @@ export type RepoBlast = {
   repo: string
   branch: string
   fileCount: number
-  usesPackwerk: boolean
-  listed: FileBlast[]
-  quiet: number
-  tests: number
-  notChecked: number
-  consumers: Consumer[]
+  breaks: Break[]
   todo?: TodoChange
 }
 

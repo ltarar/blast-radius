@@ -1,14 +1,21 @@
-import type { Consumer, FileBlast, TodoChange, TodoItem, Usage } from '../types'
+import type { Consumer, TodoChange, TodoItem, Usage } from '../types'
 
-export type PackageInfo = { dependencies: string[]; publicPath: string; enforcePrivacy: boolean }
 export type Language = 'ruby' | 'js' | 'other'
 export type Published = { gem?: string; npm?: string }
+
+export type Level = 'red' | 'yellow' | 'green'
+
+const RISK: Record<Level, number> = { red: 0, yellow: 1, green: 2 }
+
+export const byRisk = <T extends { level: Level }>(items: T[]): T[] => [...items].sort((a, b) => RISK[a.level] - RISK[b.level])
 
 export const expandHome = (path: string, home: string): string =>
   (path === '~' || path.startsWith('~/') ? home + path.slice(1) : path).replace(/\/+$/, '')
 
 export const repoOf = (path: string, root: string): string | undefined =>
   path.startsWith(`${root}/`) ? path.slice(root.length + 1).split('/')[0] || undefined : undefined
+
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
 export const gemNameOf = (gemspec: string): string | undefined => gemspec.match(/\.name\s*=\s*["']([^"']+)["']/)?.[1]
 
@@ -22,7 +29,7 @@ export const npmNameOf = (packageJson: string): string | undefined => {
 }
 
 export const lockHasGem = (lock: string, gem: string): boolean =>
-  new RegExp(`^ {4}${gem.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} \\(`, 'm').test(lock)
+  new RegExp(`^ {4}${escapeRegExp(gem)} \\(`, 'm').test(lock)
 
 export const packageJsonHasDep = (packageJson: string, name: string): boolean => {
   try {
@@ -47,27 +54,6 @@ export const consumersOf = (
   return found.sort((a, b) => a.repo.localeCompare(b.repo))
 }
 
-export const parsePackage = (yaml: string): PackageInfo => {
-  const dependencies: string[] = []
-  let publicPath = 'app/public/'
-  let enforcePrivacy = false
-  let inDeps = false
-  for (const line of yaml.split('\n')) {
-    const publicMatch = line.match(/^public_path:\s*["']?([^"'#\s]+)/)
-    if (publicMatch?.[1]) publicPath = publicMatch[1].endsWith('/') ? publicMatch[1] : `${publicMatch[1]}/`
-    if (/^enforce_privacy:\s*true/.test(line)) enforcePrivacy = true
-    if (/^dependencies:\s*$/.test(line)) {
-      inDeps = true
-      continue
-    }
-    if (!inDeps) continue
-    const item = line.match(/^\s*-\s*["']?([^"'#\s]+)["']?/)
-    if (item?.[1]) dependencies.push(item[1])
-    else if (/^\S/.test(line)) inDeps = false
-  }
-  return { dependencies, publicPath, enforcePrivacy }
-}
-
 // `git diff --name-status --no-renames` output plus untracked paths, as unique repo-relative paths.
 export const changedFiles = (nameStatus: string, untracked: string): string[] => {
   const fromDiff = nameStatus
@@ -86,50 +72,6 @@ export const languageOf = (path: string): Language => {
   return 'other'
 }
 
-// Package dirs that could own a path, nearest first, ending at the root package ".".
-export const packageCandidates = (path: string): string[] => {
-  const parts = path.split('/').slice(0, -1)
-  const dirs: string[] = []
-  for (let i = parts.length; i > 0; i--) dirs.push(parts.slice(0, i).join('/'))
-  return [...dirs, '.']
-}
-
-export const ownerOf = (path: string, packages: Record<string, PackageInfo>): string => {
-  const owner = packageCandidates(path).find(dir => dir in packages)
-  if (owner !== '.' || !path.startsWith('spec/')) return owner ?? '.'
-  return packageCandidates(path.slice('spec/'.length)).find(dir => dir in packages) ?? '.'
-}
-
-export const dependentsOf = (pkg: string, packages: Record<string, PackageInfo>): string[] =>
-  Object.entries(packages)
-    .filter(([name, info]) => name !== pkg && info.dependencies.includes(pkg))
-    .map(([name]) => name)
-    .sort()
-
-export const isPrivate = (path: string, packages: Record<string, PackageInfo>): boolean => {
-  const pkg = ownerOf(path, packages)
-  const info = packages[pkg]
-  if (!info?.enforcePrivacy) return false
-  return !(pkg === '.' ? path : path.slice(pkg.length + 1)).startsWith(info.publicPath)
-}
-
-// The fully qualified name of the first class in a Ruby file, from its module/class nesting.
-export const constantOf = (source: string): string | undefined => {
-  const stack: { indent: number; name: string }[] = []
-  let lastModule: string | undefined
-  for (const line of source.split('\n')) {
-    const match = line.match(/^(\s*)(module|class)\s+([A-Z][\w:]*)/)
-    if (!match?.[2] || !match[3]) continue
-    const indent = match[1]?.length ?? 0
-    while (stack.length > 0 && (stack[stack.length - 1]?.indent ?? 0) >= indent) stack.pop()
-    stack.push({ indent, name: match[3] })
-    const qualified = stack.map(one => one.name).join('::')
-    if (match[2] === 'class') return qualified
-    lastModule = qualified
-  }
-  return lastModule
-}
-
 // The import path tail other files use for a JS/TS module: `components/Button`, or the folder for an index file.
 export const moduleTailOf = (path: string): string => {
   const parts = path.replace(/\.(m?js|jsx|ts|tsx)$/, '').split('/')
@@ -138,8 +80,7 @@ export const moduleTailOf = (path: string): string => {
 }
 
 export const importPattern = (tail: string): string => {
-  const escaped = tail.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  return `(from|import|require\\()[[:space:]]*['"][^'"]*${escaped}(\\.(m?js|jsx|ts|tsx))?['"]`
+  return `(from|import|require\\()[[:space:]]*['"][^'"]*${escapeRegExp(tail)}(\\.(m?js|jsx|ts|tsx))?['"]`
 }
 
 // `git grep -n` output as usages, code trimmed to one short line.
@@ -149,35 +90,6 @@ export const parseGrepHits = (stdout: string): Usage[] =>
     .map(line => line.match(/^([^:]+):(\d+):(.*)$/))
     .filter((match): match is RegExpMatchArray => Boolean(match?.[1] && match[2]))
     .map(match => ({ path: match[1] ?? '', line: Number(match[2]), code: (match[3] ?? '').trim().slice(0, 100) }))
-
-export const shouldList = (file: FileBlast): boolean =>
-  file.uses.length > 0 || file.repoUses.length > 0 || file.visibleTo.length > 0
-
-export type Advice = { level: 'red' | 'yellow' | 'green'; text: string }
-
-const places = (n: number) => (n === 1 ? '1 place' : `${n} places`)
-
-// One plain sentence per file; the callers listed under it finish it.
-export const adviceFor = (file: FileBlast): Advice => {
-  const name = file.path.split('/').pop() ?? file.path
-  if (file.movedTo) return { level: 'green', text: `You moved ${name} to ${file.movedTo}. Callers still work.` }
-  const count = file.uses.length + file.repoUses.reduce((n, r) => n + r.uses.length, 0)
-  if (file.isDeleted && count > 0) return { level: 'red', text: `You deleted ${name}, but ${places(count)} still ${count === 1 ? 'uses' : 'use'} it. ${count === 1 ? 'It' : 'They'} will break:` }
-  if (file.isDeleted) return { level: 'green', text: `You deleted ${name}. Nothing else used it.` }
-  const what = file.changed.length > 0 ? `${file.changed.join(', ')} in ${name}` : name
-  if (file.repoUses.length > 0) return { level: 'red', text: `You changed ${what}. Other repos use it. Check them before you release:` }
-  if (count > 0) {
-    return { level: 'yellow', text: `You changed ${what}. ${places(count)} ${count === 1 ? 'calls' : 'call'} it. Run their specs:` }
-  }
-  const who = file.visibleTo.map(pkg => (pkg === '.' ? 'the root package' : pkg)).join(', ')
-  return { level: 'green', text: `${name} is public to ${who}, but nothing uses it yet. Check it needs to be public.` }
-}
-
-export type Level = Advice['level']
-
-const RISK: Record<Level, number> = { red: 0, yellow: 1, green: 2 }
-
-export const byRisk = <T extends { level: Level }>(items: T[]): T[] => [...items].sort((a, b) => RISK[a.level] - RISK[b.level])
 
 export const isTodoFile = (path: string): boolean => path === 'package_todo.yml' || path.endsWith('/package_todo.yml')
 
@@ -257,83 +169,13 @@ export const diffTodo = (before: Record<string, string[]>, after: Record<string,
 export const addTodo = (a: TodoChange | undefined, b: TodoChange): TodoChange =>
   a ? { added: a.added + b.added, fixed: a.fixed + b.fixed, moved: a.moved + b.moved, items: [...a.items, ...b.items] } : b
 
-export type ChangedLines = { added: number[]; removed: number[] }
-
-// Line numbers a `git diff -U0` touches: `added` in the new file, `removed` in the old one.
-export const parseDiffLines = (diff: string): ChangedLines => {
-  const lines: ChangedLines = { added: [], removed: [] }
-  for (const header of diff.matchAll(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/gm)) {
-    const [oldStart, oldCount, newStart, newCount] = [header[1], header[2] ?? '1', header[3], header[4] ?? '1'].map(Number)
-    for (let i = 0; i < (oldCount ?? 0); i++) lines.removed.push((oldStart ?? 0) + i)
-    for (let i = 0; i < (newCount ?? 0); i++) lines.added.push((newStart ?? 0) + i)
-  }
-  return lines
-}
-
 // A grep hit on a Ruby or JS comment line, which can't break.
 export const isCommentLine = (code: string): boolean => /^(#|\/\/|\/\*|\*)/.test(code.trim())
 
-const isRubyComment = (line: string) => line.trim() === '' || line.trim().startsWith('#')
+// A git grep -E pattern for a constant's last name, alone or followed by `suffix` (say `\.call`).
+export const referencePattern = (shortName: string, suffix = ''): string =>
+  `(^|[^A-Za-z0-9_])${escapeRegExp(shortName)}${suffix}([^A-Za-z0-9_?!]|$)`
 
-export type Member = { kind: 'class-method' | 'method' | 'constant' | 'whole'; name: string }
-
-const indentOf = (line: string) => line.length - line.trimStart().length
-const DEF = /^\s*def\s+(self\.)?([a-z_][\w]*[?!=]?)/
-const CONSTANT = /^\s*([A-Z][A-Z0-9_]*)\s*=/
-const CLASS_LEVEL = /^\s*(class|module)\s/
-
-// What a changed Ruby line belongs to: the method or constant around it, or the class itself.
-export const memberAt = (source: string[], lineNo: number): Member => {
-  let at = lineNo - 1
-  while (at < source.length && isRubyComment(source[at] ?? '')) at++
-  const own = source[at] ?? ''
-  const def = own.match(DEF)
-  const constant = own.match(CONSTANT)
-  let indent = indentOf(own)
-  let found: Member | undefined =
-    def?.[2] ? { kind: def[1] ? 'class-method' : 'method', name: def[2] } : constant?.[1] ? { kind: 'constant', name: constant[1] } : undefined
-
-  for (let i = at - 1; i >= 0; i--) {
-    const line = source[i] ?? ''
-    if (isRubyComment(line) || indentOf(line) >= indent) continue
-    indent = indentOf(line)
-    if (found?.kind === 'method' && /^\s*class\s*<<\s*self/.test(line)) return { kind: 'class-method', name: found.name }
-    if (found) {
-      if (CLASS_LEVEL.test(line)) return found
-      continue
-    }
-    const outerDef = line.match(DEF)
-    const outerConstant = line.match(CONSTANT)
-    if (outerDef?.[2]) found = { kind: outerDef[1] ? 'class-method' : 'method', name: outerDef[2] }
-    else if (outerConstant?.[1]) found = { kind: 'constant', name: outerConstant[1] }
-    else if (CLASS_LEVEL.test(line)) return { kind: 'whole', name: '' }
-  }
-  return found ?? { kind: 'whole', name: '' }
-}
-
-// The members a Ruby diff touches; empty when only comments or blank lines changed.
-export const changedMembers = (before: string, after: string, lines: ChangedLines): Member[] => {
-  const oldLines = before.split('\n')
-  const newLines = after.split('\n')
-  const touched = [
-    ...lines.removed.filter(n => !isRubyComment(oldLines[n - 1] ?? '')).map(n => memberAt(oldLines, n)),
-    ...lines.added.filter(n => !isRubyComment(newLines[n - 1] ?? '')).map(n => memberAt(newLines, n)),
-  ]
-  if (touched.some(member => member.kind === 'whole')) return [{ kind: 'whole', name: '' }]
-  const unique = new Map(touched.map(member => [`${member.kind}:${member.name}`, member]))
-  return [...unique.values()]
-}
-
-const escapeRegex = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-const END = '([^A-Za-z0-9_?!]|$)'
-
-// A git grep -E pattern for one member, or for any method call when it is an instance method.
-export const memberPattern = (constant: string, member: Member): string => {
-  if (member.kind === 'class-method') return `${escapeRegex(constant)}\\.${escapeRegex(member.name)}${END}`
-  if (member.kind === 'constant') return `${escapeRegex(constant)}::${escapeRegex(member.name)}${END}`
-  if (member.kind === 'method') return `\\.${escapeRegex(member.name)}${END}`
-  return `${escapeRegex(constant)}${END}`
-}
-
-export const memberLabel = (member: Member): string =>
-  member.kind === 'class-method' ? `.${member.name}` : member.kind === 'constant' ? `::${member.name}` : member.kind === 'method' ? `#${member.name}` : ''
+// The constant references in a line of code that end in `shortName`, as written: `Foo`, `A::Foo`, `::A::Foo`.
+export const referencesIn = (code: string, shortName: string): string[] =>
+  [...code.matchAll(new RegExp(`(?<![A-Za-z0-9_])(?:::)?(?:[A-Z][A-Za-z0-9_]*::)*${escapeRegExp(shortName)}(?![A-Za-z0-9_])`, 'g'))].map(m => m[0])

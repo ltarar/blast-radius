@@ -1,61 +1,24 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import {
-  adviceFor,
   byRisk,
   changedFiles,
-  changedMembers,
-  constantOf,
   consumersOf,
   diffTodo,
   expandHome,
-  dependentsOf,
   gemNameOf,
   isCommentLine,
-  isPrivate,
   isTest,
   languageOf,
   lockHasGem,
   moduleTailOf,
-  memberPattern,
-  ownerOf,
-  parseDiffLines,
   parseGrepHits,
-  parsePackage,
   parseTodo,
+  referencePattern,
+  referencesIn,
   repoOf,
   ruleLabel,
-  shouldList,
 } from './radius'
-
-const packages = {
-  '.': parsePackage('enforce_privacy: false\n'),
-  shared: parsePackage('enforce_privacy: false\n'),
-  'packages/discounts': parsePackage('enforce_privacy: true\npublic_path: public/\ndependencies:\n  - "shared"\n'),
-}
-
-describe('packwerk', () => {
-  test('parses a package file', () => {
-    expect(parsePackage('enforce_privacy: true\npublic_path: public/\ndependencies:\n  - "."\n  - packages/billing\n')).toEqual({
-      dependencies: ['.', 'packages/billing'],
-      publicPath: 'public/',
-      enforcePrivacy: true,
-    })
-    expect(parsePackage('# public_path: x/\n').publicPath).toBe('app/public/')
-  })
-
-  test('maps specs under spec/ to the package they test', () => {
-    expect(ownerOf('spec/packages/discounts/steps/x_spec.rb', packages)).toBe('packages/discounts')
-    expect(ownerOf('spec/packwerk_enforcement_spec.rb', packages)).toBe('.')
-  })
-
-  test('finds dependents and private files', () => {
-    expect(dependentsOf('shared', packages)).toEqual(['packages/discounts'])
-    expect(isPrivate('packages/discounts/steps/a.rb', packages)).toBe(true)
-    expect(isPrivate('packages/discounts/public/a.rb', packages)).toBe(false)
-    expect(isPrivate('shared/a.rb', packages)).toBe(false)
-  })
-})
 
 describe('files', () => {
   test('collects changed, deleted and untracked files once each', () => {
@@ -75,12 +38,6 @@ describe('files', () => {
 })
 
 describe('names', () => {
-  test('reads the qualified Ruby class name from module nesting', () => {
-    const source = 'module Checkout\n  module Steps\n    class ApplyVoucher\n    end\n  end\nend\n'
-    expect(constantOf(source)).toBe('Checkout::Steps::ApplyVoucher')
-    expect(constantOf('module A\nend\nmodule B\n  class C < A::D\n  end\nend\n')).toBe('B::C')
-  })
-
   test('gives the import tail of a JS module', () => {
     expect(moduleTailOf('src/components/Button.tsx')).toBe('components/Button')
     expect(moduleTailOf('src/components/Button/index.ts')).toBe('components/Button')
@@ -127,36 +84,14 @@ describe('comments', () => {
   })
 })
 
-describe('advice', () => {
-  const file = { path: 'a.rb', name: 'A', changed: [], isDeleted: false, visibleTo: [], uses: [], testUses: 0, repoUses: [] }
-  const use = { path: 'lib/x.rb', line: 1, code: 'A.new' }
-
-  test('lists only files that reach outside', () => {
-    expect(shouldList(file)).toBe(false)
-    expect(shouldList({ ...file, uses: [use] })).toBe(true)
-    expect(shouldList({ ...file, visibleTo: ['.'] })).toBe(true)
+describe('references', () => {
+  test('finds constant references as written', () => {
+    expect(referencesIn('quote = ::Pricing::Quote.calculate(Quote::RATE)', 'Quote')).toEqual(['::Pricing::Quote', 'Quote'])
+    expect(referencesIn('QuoteBuilder.new', 'Quote')).toEqual([])
   })
 
-  test('puts the riskiest files first', () => {
-    const items = [{ level: 'green' as const }, { level: 'red' as const }, { level: 'yellow' as const }, { level: 'red' as const }]
-    expect(byRisk(items).map(item => item.level)).toEqual(['red', 'red', 'yellow', 'green'])
-  })
-
-  test('advises from usage and deletion', () => {
-    expect(adviceFor({ ...file, visibleTo: ['.'] })).toEqual({
-      level: 'green',
-      text: 'a.rb is public to the root package, but nothing uses it yet. Check it needs to be public.',
-    })
-    expect(adviceFor({ ...file, changed: ['.call'], uses: [use, use] })).toEqual({
-      level: 'yellow',
-      text: 'You changed .call in a.rb. 2 places call it. Run their specs:',
-    })
-    expect(adviceFor({ ...file, repoUses: [{ repo: 'web', uses: [use], testUses: 0 }] }).level).toBe('red')
-    expect(adviceFor({ ...file, isDeleted: true, uses: [use] }).text).toBe('You deleted a.rb, but 1 place still uses it. It will break:')
-    expect(adviceFor({ ...file, isDeleted: true, uses: [use], movedTo: 'shared/a.rb' })).toEqual({
-      level: 'green',
-      text: 'You moved a.rb to shared/a.rb. Callers still work.',
-    })
+  test('builds a grep pattern for a name and an optional call', () => {
+    expect(referencePattern('Quote', '\\.calculate')).toBe('(^|[^A-Za-z0-9_])Quote\\.calculate([^A-Za-z0-9_?!]|$)')
   })
 })
 
@@ -178,50 +113,9 @@ describe('package_todo.yml', () => {
   })
 })
 
-describe('changed members', () => {
-  const before = [
-    'module Discounts',
-    '  module VoucherCode',
-    '    LOOKUP = {',
-    "      a: 'b',",
-    '    }',
-    '',
-    '    class << self',
-    '      # @rbs code: String',
-    '      def get_discount_for(code)',
-    '        discount(code)',
-    '      end',
-    '    end',
-    '  end',
-    'end',
-  ].join('\n')
-  const edit = (line: number, text: string) =>
-    before
-      .split('\n')
-      .map((l, i) => (i === line - 1 ? text : l))
-      .join('\n')
-
-  test('reads changed line numbers from a diff', () => {
-    expect(parseDiffLines('@@ -8 +8 @@ x\n-a\n+b\n@@ -20,2 +20,0 @@\n')).toEqual({ added: [8], removed: [8, 20, 21] })
-  })
-
-  test('ignores changes to comments only', () => {
-    const after = edit(8, '      # @rbs code: String?')
-    expect(changedMembers(before, after, { added: [8], removed: [8] })).toEqual([])
-  })
-
-  test('finds the class method around a changed line', () => {
-    const after = edit(10, '        discount(code.to_s)')
-    expect(changedMembers(before, after, { added: [10], removed: [10] })).toEqual([{ kind: 'class-method', name: 'get_discount_for' }])
-  })
-
-  test('finds the constant around a changed line', () => {
-    const after = edit(4, "      a: 'c',")
-    expect(changedMembers(before, after, { added: [4], removed: [4] })).toEqual([{ kind: 'constant', name: 'LOOKUP' }])
-  })
-
-  test('builds search patterns per member', () => {
-    expect(memberPattern('A::B', { kind: 'class-method', name: 'run' })).toBe('A::B\\.run([^A-Za-z0-9_?!]|$)')
-    expect(memberPattern('A::B', { kind: 'constant', name: 'LOOKUP' })).toBe('A::B::LOOKUP([^A-Za-z0-9_?!]|$)')
+describe('order', () => {
+  test('puts the riskiest first', () => {
+    const items = [{ level: 'green' as const }, { level: 'red' as const }, { level: 'yellow' as const }, { level: 'red' as const }]
+    expect(byRisk(items).map(item => item.level)).toEqual(['red', 'red', 'yellow', 'green'])
   })
 })

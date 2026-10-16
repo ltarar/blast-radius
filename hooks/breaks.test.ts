@@ -1,0 +1,104 @@
+import { describe, expect, test } from 'claude-code/testing'
+
+import { findBreaks, todoOf } from './breaks'
+import type { Repo } from './breaks'
+import { isCommentLine } from './radius'
+
+// A repo held in memory: `now` is the branch, `before` the base. Grep runs over `now` as git grep -E would.
+const repoOf = (name: string, now: Record<string, string>, before: Record<string, string> = now): Repo => ({
+  name,
+  read: async path => now[path],
+  readBefore: async path => before[path],
+  grep: async (pattern, only = []) => {
+    const matches = new RegExp(pattern.replaceAll('[[:space:]]', '\\s'))
+    return Object.entries(now)
+      .filter(([path]) => only.length === 0 || only.includes(path))
+      .flatMap(([path, source]) =>
+        source.split('\n').flatMap((line, i) => (matches.test(line) && !isCommentLine(line) ? [{ path, line: i + 1, code: line.trim() }] : [])),
+      )
+  },
+  filesMentioning: async word => Object.keys(now).filter(path => new RegExp(`\\b${word}\\b`).test(now[path] ?? '')),
+})
+
+const quote = (params = 'items, currency:', body = 'new(items.sum(&:price))') =>
+  `module Pricing\n  class Quote\n    def self.calculate(${params})\n      ${body}\n    end\n  end\nend\n`
+
+const total = 'module Checkout\n  class Total\n    def self.call(basket)\n      Pricing::Quote.calculate(basket.items, currency: basket.currency)\n    end\n  end\nend\n'
+const basket = "class BasketsController\n  def show\n    @quote = Pricing::Quote.calculate(items, currency: 'GBP')\n  end\nend\n"
+
+const pricing = (now: Record<string, string>) =>
+  repoOf('pricing', { 'lib/pricing/quote.rb': quote(), 'lib/checkout/total.rb': total, ...now }, { 'lib/pricing/quote.rb': quote(), 'lib/checkout/total.rb': total })
+const shop = repoOf('shop', { 'app/controllers/baskets_controller.rb': basket })
+
+describe('what stays quiet', () => {
+  test('a change inside a method body', async () => {
+    const repo = pricing({ 'lib/pricing/quote.rb': quote('items, currency:', 'new(items.sum(&:price).round(2))') })
+    expect(await findBreaks(repo, ['lib/pricing/quote.rb'], [shop])).toEqual([])
+  })
+
+  test('a new optional argument every call still fits', async () => {
+    const repo = pricing({ 'lib/pricing/quote.rb': quote('items, currency:, rounding: :pence') })
+    expect(await findBreaks(repo, ['lib/pricing/quote.rb'], [shop])).toEqual([])
+  })
+
+  test('a new parent class', async () => {
+    const before = 'module Leads\n  class Captured < OldBase\n    def process(message)\n      message\n    end\n  end\nend\n'
+    const after = before.replace('OldBase', '::Workers::Base')
+    const repo = repoOf('api', { 'app/leads/captured.rb': after }, { 'app/leads/captured.rb': before })
+    expect(await findBreaks(repo, ['app/leads/captured.rb'], [])).toEqual([])
+  })
+
+  test('a class moved to another file under the same name', async () => {
+    const repo = repoOf('pricing', { 'lib/pricing/models/quote.rb': quote(), 'lib/checkout/total.rb': total }, { 'lib/pricing/quote.rb': quote() })
+    expect(await findBreaks(repo, ['lib/pricing/quote.rb', 'lib/pricing/models/quote.rb'], [])).toEqual([])
+  })
+})
+
+describe('what breaks', () => {
+  test('a new required argument, with the calls that no longer fit, here and in other repos', async () => {
+    const repo = pricing({ 'lib/pricing/quote.rb': quote('items, currency:, rounding:') })
+    expect(await findBreaks(repo, ['lib/pricing/quote.rb'], [shop])).toEqual([
+      {
+        level: 'red',
+        text: 'You changed Pricing::Quote.calculate to take (items, currency:, rounding:). 2 places no longer fit:',
+        uses: [{ path: 'lib/checkout/total.rb', line: 4, code: 'Pricing::Quote.calculate(basket.items, currency: basket.currency)' }],
+        testUses: 0,
+        repoUses: [{ repo: 'shop', uses: [{ path: 'app/controllers/baskets_controller.rb', line: 3, code: "@quote = Pricing::Quote.calculate(items, currency: 'GBP')" }], testUses: 0 }],
+      },
+    ])
+  })
+
+  test('a removed class that is still used', async () => {
+    const repo = repoOf('pricing', { 'lib/checkout/total.rb': total }, { 'lib/pricing/quote.rb': quote(), 'lib/checkout/total.rb': total })
+    const [found] = await findBreaks(repo, ['lib/pricing/quote.rb'], [])
+    expect(found?.text).toBe('You removed Pricing::Quote, but 1 place still uses it. It will break:')
+  })
+
+  test('a Sidekiq worker moved without an alias', async () => {
+    const worker = (namespace: string) => `module ${namespace}\n  class Reminder\n    include Sidekiq::Job\n\n    def perform(lead_id)\n      lead_id\n    end\n  end\nend\n`
+    const repo = repoOf('api', { 'app/leads/workers/reminder.rb': worker('Leads::Workers') }, { 'app/workers/reminder.rb': worker('Workers') })
+    const [found] = await findBreaks(repo, ['app/workers/reminder.rb', 'app/leads/workers/reminder.rb'], [])
+    expect(found).toEqual({
+      level: 'red',
+      text: 'You removed the Sidekiq worker Workers::Reminder. Jobs already queued under that name will fail.',
+      fix: 'Keep an alias for the old name: Workers::Reminder = ::Leads::Workers::Reminder',
+      uses: [],
+      testUses: 0,
+      repoUses: [],
+    })
+  })
+
+  test('a deleted JS file that is still imported', async () => {
+    const repo = repoOf('web', { 'src/pages/Home.tsx': "import { Button } from '../components/Button'\n" })
+    const [found] = await findBreaks(repo, ['src/components/Button.tsx'], [])
+    expect(found?.text).toBe('You deleted src/components/Button.tsx, but 1 place still imports it. It will break:')
+  })
+})
+
+describe('Packwerk', () => {
+  test('finds a new rule break', async () => {
+    const todo = '---\n"packages/discounts":\n  "::Discounts::VoucherCode":\n    violations:\n    - privacy\n    files:\n    - packages/checkout/total.rb\n'
+    const repo = repoOf('pricing', { 'packages/checkout/package_todo.yml': todo }, {})
+    expect((await todoOf(repo, ['packages/checkout/package_todo.yml']))?.added).toBe(1)
+  })
+})

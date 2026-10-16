@@ -6,17 +6,16 @@ A Claude Code plugin that shows what your branch can break, while Claude is stil
 
 ![blast-radius showing what a branch can break](preview.png)
 
-After each Claude turn, and whenever you run `/blast-radius`, it finds the code
-that depends on the files your branch changes. It looks inside the repo, across
-Packwerk package boundaries, and in your other repos that pull it in as a gem or
-npm package. A pane beside the transcript lists each file that reaches outside,
-with a traffic light and one line of advice.
+After each Claude turn, and whenever you run `/blast-radius`, it looks at what
+your branch removed or changed, and finds the code that will no longer work. It
+looks inside the repo and in your other repos that pull it in as a gem or npm
+package. Changes that can't break anything stay out of the pane.
 
 | | Means |
 | :- | :- |
-| 🔴 | Used in other repos, or deleted while still used. Check before you release. |
-| 🟡 | Used elsewhere in this repo. Run the specs for those lines. |
-| 🟢 | Used only where it lives. Nothing to do. |
+| 🔴 | Will break: a removed class, constant or method is still used, a call no longer fits its method's new arguments, a deleted JS file is still imported, or a Sidekiq worker's queued jobs will fail. |
+| 🟡 | May break: an instance method changed, and code calls a method with that name. Ruby can't say for sure which class a call goes to. |
+| 🟢 | Nothing in the branch breaks other code. |
 
 It also reads changes to `package_todo.yml`, so a new Packwerk rule break shows
 up before review, not after.
@@ -57,14 +56,23 @@ A repo joins focus by itself when Claude edits a file in it. The status line car
 
 ## How it works
 
-For each changed file, blast-radius compares the branch with its merge base on
-`origin/HEAD`. In Ruby files it works out which methods changed and searches
-for callers of just those. A change to comments only counts as safe. It skips
-private files in Packwerk packages, since nothing outside can reach them, and
-test files, which it counts instead.
+blast-radius compares the branch with its merge base on `origin/HEAD`,
+including uncommitted and new files.
+
+In Ruby, it reads the classes, modules, constants and public methods that the
+changed files define, before and after. It then searches for code that still
+uses anything that disappeared, and checks each call against a method's new
+arguments, so a new optional argument stays quiet. Changes inside a method body,
+a new parent class, and moves that keep a name are left out, since callers
+still work.
+
+In JS and TS, it finds deleted files that something still imports.
 
 To find other repos that use this one, it reads the gemspec or `package.json`
 name and checks every repo's `Gemfile.lock` and `package.json` for it.
+
+It can't see calls through `send`, `described_class` or other dynamic code.
+Your specs still cover those.
 
 Everything runs locally with `git` and the files on disk. Nothing is sent
 anywhere.
