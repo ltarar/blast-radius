@@ -305,8 +305,9 @@ function paneLines(list: RepoBlast[]): Line[] {
     ...byRisk([...one.listed.map(f => ({ level: adviceFor(f).level, lines: fileLines(f) })), ...todoBlock(one)]).flatMap(
       block => block.lines,
     ),
-    ...(one.quiet > 0
-      ? [BLANK, { text: `🟢 ${plural(one.quiet, 'other changed file')} ${one.quiet === 1 ? "isn't" : "aren't"} used anywhere else.`, color: 'green' as const }]
+    // Only when there is nothing else to say, so a quiet pane still shows it checked.
+    ...(one.listed.length === 0 && !one.todo?.added
+      ? [BLANK, { text: `🟢 Nothing else uses what you changed.`, color: 'green' as const }]
       : []),
     ...(consumerLine(one) ? [{ text: `🌐 ${consumerLine(one)}`, dim: true }] : []),
   ])
