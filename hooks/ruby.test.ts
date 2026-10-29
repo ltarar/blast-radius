@@ -75,6 +75,7 @@ describe('arguments', () => {
     expect(isCompatible('items', 'items, currency: :gbp')).toBe(true)
     expect(isCompatible('items, currency: :gbp', 'items, **options')).toBe(true)
     expect(isCompatible('a, b', '*args')).toBe(true)
+    expect(isCompatible('items, **options', 'items, options = {}')).toBe(true)
   })
 
   test('rejects changes that break old calls', () => {
@@ -83,6 +84,8 @@ describe('arguments', () => {
     expect(isCompatible('items, currency = :gbp', 'items')).toBe(false)
     expect(isCompatible('items, currency: :gbp', 'items')).toBe(false)
     expect(isCompatible('*items', 'items')).toBe(false)
+    expect(isCompatible('items, **options', 'items')).toBe(false)
+    expect(isCompatible('items, **options', 'items, currency: :gbp')).toBe(false)
   })
 })
 

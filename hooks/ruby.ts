@@ -175,6 +175,11 @@ export const isCompatible = (before: string, after: string): boolean => {
   if (!hasRest && count(old, 'req', 'opt') + (old.some(p => p.kind === 'rest') ? Infinity : 0) > count(now, 'req', 'opt')) return false
   if (keys(now, 'keyreq').some(name => !keys(old, 'keyreq').includes(name))) return false
   if (!hasKeyrest && keys(old, 'keyreq', 'key').some(name => !keys(now, 'keyreq', 'key').includes(name))) return false
+  if (!hasKeyrest && old.some(p => p.kind === 'keyrest')) {
+    // Without any keywords, Ruby passes the old callers' keywords on as one positional hash.
+    const takesHash = count(now, 'keyreq', 'key') === 0 && (hasRest || count(now, 'req', 'opt') > count(old, 'req', 'opt'))
+    if (!takesHash) return false
+  }
   return true
 }
 
