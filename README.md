@@ -70,7 +70,9 @@ still work.
 In JS and TS, it finds deleted files that something still imports.
 
 To find other repos that use this one, it reads the gemspec or `package.json`
-name and checks every repo's `Gemfile.lock` and `package.json` for it.
+name and checks every repo's `Gemfile.lock` and `package.json` for it. It only
+reads the `package.json` at a repo's root, so packages inside a monorepo aren't
+linked yet.
 
 It can't see calls through `send`, `described_class` or other dynamic code.
 Your specs still cover those.
