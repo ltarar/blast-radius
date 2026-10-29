@@ -30,6 +30,10 @@ const pricing = (now: Record<string, string>) =>
   repoOf('pricing', { 'lib/pricing/quote.rb': quote(), 'lib/checkout/total.rb': total, ...now }, { 'lib/pricing/quote.rb': quote(), 'lib/checkout/total.rb': total })
 const shop = repoOf('shop', { 'app/controllers/baskets_controller.rb': basket })
 
+// What the pane says first when a web repo holding `now` deletes src/components/Button.tsx.
+const afterDeletingButton = async (now: Record<string, string>) => (await findBreaks(repoOf('web', now), ['src/components/Button.tsx'], []))[0]?.text
+const buttonStillImported = 'You deleted src/components/Button.tsx, but 1 place still imports it. It will break:'
+
 describe('what stays quiet', () => {
   test('a change inside a method body', async () => {
     const repo = pricing({ 'lib/pricing/quote.rb': quote('items, currency:', 'new(items.sum(&:price).round(2))') })
@@ -162,15 +166,11 @@ describe('what breaks', () => {
   })
 
   test('a deleted JS file that is still imported', async () => {
-    const repo = repoOf('web', { 'src/pages/Home.tsx': "import { Button } from '../components/Button'\n" })
-    const [found] = await findBreaks(repo, ['src/components/Button.tsx'], [])
-    expect(found?.text).toBe('You deleted src/components/Button.tsx, but 1 place still imports it. It will break:')
+    expect(await afterDeletingButton({ 'src/pages/Home.tsx': "import { Button } from '../components/Button'\n" })).toBe(buttonStillImported)
   })
 
   test('a deleted JS file imported by a relative path from its own folder', async () => {
-    const repo = repoOf('web', { 'src/components/Home.tsx': "import Button from './Button'\n" })
-    const [found] = await findBreaks(repo, ['src/components/Button.tsx'], [])
-    expect(found?.text).toBe('You deleted src/components/Button.tsx, but 1 place still imports it. It will break:')
+    expect(await afterDeletingButton({ 'src/components/Home.tsx': "import Button from './Button'\n" })).toBe(buttonStillImported)
   })
 
   test('a relative import of a same-named file in another folder stays quiet', async () => {
@@ -190,14 +190,11 @@ describe('what breaks', () => {
   })
 
   test('a deleted JS file loaded with import()', async () => {
-    const repo = repoOf('web', { 'src/pages/Home.tsx': "const Button = lazy(() => import('../components/Button'))\n" })
-    const [found] = await findBreaks(repo, ['src/components/Button.tsx'], [])
-    expect(found?.text).toBe('You deleted src/components/Button.tsx, but 1 place still imports it. It will break:')
+    expect(await afterDeletingButton({ 'src/pages/Home.tsx': "const Button = lazy(() => import('../components/Button'))\n" })).toBe(buttonStillImported)
   })
 
   test('a deleted JS file loaded with import() from its own folder', async () => {
-    const repo = repoOf('web', { 'src/components/Home.tsx': "const Button = lazy(() => import('./Button'))\n" })
-    expect((await findBreaks(repo, ['src/components/Button.tsx'], [])).length).toBe(1)
+    expect(await afterDeletingButton({ 'src/components/Home.tsx': "const Button = lazy(() => import('./Button'))\n" })).toBe(buttonStillImported)
   })
 
   test("another repo's own relative import of a same-named file stays quiet", async () => {
