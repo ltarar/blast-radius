@@ -260,19 +260,14 @@ export const register: Register = (on, options) => {
     return { text: shown ? 'Blast radius: all repos.' : `Blast radius: ${[...(await focusedRepos($))].join(', ') || 'no repos in focus yet'}.` }
   })
 
-  on('tool.call', { tool: 'Edit' }, async ($, e, next) => {
-    const ran = await next(e)
-    const repo = repoOf(e.file_path, await reposRoot($))
-    if (repo) await addFocus($, [repo])
-    return ran
-  }).catch((_$, e, next) => next(e))
-
-  on('tool.call', { tool: 'Write' }, async ($, e, next) => {
-    const ran = await next(e)
-    const repo = repoOf(e.file_path, await reposRoot($))
-    if (repo) await addFocus($, [repo])
-    return ran
-  }).catch((_$, e, next) => next(e))
+  for (const tool of ['Edit', 'Write'] as const) {
+    on('tool.call', { tool }, async ($, e, next) => {
+      const ran = await next(e)
+      const repo = repoOf(e.file_path, await reposRoot($))
+      if (repo) await addFocus($, [repo])
+      return ran
+    }).catch((_$, e, next) => next(e))
+  }
 
   on('turn.complete', async ($, e, next) => {
     const done = await next(e)
