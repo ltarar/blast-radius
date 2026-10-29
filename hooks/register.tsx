@@ -167,6 +167,16 @@ type Line = { text: string; color?: Level; bold?: boolean; dim?: boolean }
 
 const BLANK: Line = { text: ' ' }
 
+// A key per line from its text and how often that text came before, so repeated lines stay unique.
+const withKeys = (lines: Line[]) => {
+  const seen = new Map<string, number>()
+  return lines.map(line => {
+    const count = (seen.get(line.text) ?? 0) + 1
+    seen.set(line.text, count)
+    return { ...line, key: `${line.text}#${count}` }
+  })
+}
+
 function paneLines(list: RepoBlast[]): Line[] {
   if (list.length === 0) return [{ text: 'No changes in focus. Run /blast-radius <repo> to add a repo, or /blast-radius all.', dim: true }]
   return list.flatMap((one, i) => [
@@ -274,8 +284,8 @@ export const register: Register = (on, options) => {
     const { Box, Text } = $.ui.resolve(e)
     return (
       <Box flexDirection="column">
-        {paneLines(await read($, repos)).map((line, i) => (
-          <Text key={i} bold={line.bold} dimColor={line.dim} color={line.color}>
+        {withKeys(paneLines(await read($, repos))).map(line => (
+          <Text key={line.key} bold={line.bold} dimColor={line.dim} color={line.color}>
             {line.text}
           </Text>
         ))}
