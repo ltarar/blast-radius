@@ -13,8 +13,8 @@ package. Changes that can't break anything stay out of the pane.
 
 | | Means |
 | :- | :- |
-| 🔴 | Will break: a removed class, constant or method is still used, a call no longer fits its method's new arguments, a deleted JS file is still imported, or a Sidekiq worker's queued jobs will fail. |
-| 🟡 | May break: an instance method changed, and code calls a method with that name. Ruby can't say for sure which class a call goes to. |
+| 🔴 | Will break: a class, constant or method that was removed or made private is still used, a call no longer fits its method's new arguments, a deleted JS file is still imported, or a Sidekiq worker's queued jobs will fail. |
+| 🟡 | May break: an instance method changed, and code calls a method with that name. Ruby can't say for sure which class a call goes to. Or a Sidekiq worker lost `perform`, but its parent class may provide it. |
 | 🟢 | Nothing in the branch breaks other code. |
 
 It also reads changes to `package_todo.yml`, so a new Packwerk rule break shows
