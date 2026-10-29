@@ -67,19 +67,30 @@ const walk = (source: string, visit: (line: string, lineNo: number, stack: Scope
 
 const DEF_OPEN = /^\s*(?:(?:private|protected|public)\s+)?def\s+(?:self\.)?[a-zA-Z_]\w*[?!=]?\s*\(/
 
-// Where the bracket opened at `open` closes, skipping brackets inside strings; -1 if it doesn't close.
-const closingBracket = (text: string, open: number) => {
-  let depth = 0
+// Fed one character at a time, says whether it belongs to a quoted string, quotes included.
+const stringTracker = () => {
   let quote = ''
   let escaped = false
-  for (let i = open; i < text.length; i++) {
-    const char = text.charAt(i)
+  return (char: string): boolean => {
     if (quote) {
       if (escaped) escaped = false
       else if (char === '\\') escaped = true
       else if (char === quote) quote = ''
-    } else if (char === '"' || char === "'") quote = char
-    else if ('([{'.includes(char)) depth++
+      return true
+    }
+    if (char === '"' || char === "'") quote = char
+    return quote !== ''
+  }
+}
+
+// Where the bracket opened at `open` closes, skipping brackets inside strings; -1 if it doesn't close.
+const closingBracket = (text: string, open: number) => {
+  const inString = stringTracker()
+  let depth = 0
+  for (let i = open; i < text.length; i++) {
+    const char = text.charAt(i)
+    if (inString(char)) continue
+    if ('([{'.includes(char)) depth++
     else if (')]}'.includes(char) && --depth === 0) return i
   }
   return -1
@@ -184,22 +195,18 @@ type Param = { name: string; kind: 'req' | 'opt' | 'rest' | 'keyreq' | 'key' | '
 
 const splitTopLevel = (text: string) => {
   const parts: string[] = []
+  const inString = stringTracker()
   let depth = 0
-  let quote = ''
-  let escaped = false
   let current = ''
   for (const char of text) {
-    if (quote) {
-      if (escaped) escaped = false
-      else if (char === '\\') escaped = true
-      else if (char === quote) quote = ''
-    } else if (char === '"' || char === "'") quote = char
-    else if ('([{'.includes(char)) depth++
-    else if (')]}'.includes(char)) depth--
-    else if (char === ',' && depth === 0) {
-      parts.push(current)
-      current = ''
-      continue
+    if (!inString(char)) {
+      if ('([{'.includes(char)) depth++
+      else if (')]}'.includes(char)) depth--
+      else if (char === ',' && depth === 0) {
+        parts.push(current)
+        current = ''
+        continue
+      }
     }
     current += char
   }
