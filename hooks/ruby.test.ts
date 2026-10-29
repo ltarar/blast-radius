@@ -167,6 +167,13 @@ describe('calls', () => {
     expect(fitsCall('value', '"a", "b"')).toBe(false)
   })
 
+  test('reads a default value that calls a method, on one line or several', () => {
+    const oneLine = 'class Quote\n  def self.calculate(value = Defaults.build(), currency:)\n  end\nend\n'
+    expect(outlineOf(oneLine).methods.get('Quote.calculate')?.params).toBe('value = Defaults.build(), currency:')
+    const several = 'class Rule\n  def initialize(\n    rules: Rules.build(1),\n    clock: Time\n  )\n  end\nend\n'
+    expect(outlineOf(several).methods.get('Rule#initialize')?.params).toBe('rules: Rules.build(1), clock: Time')
+  })
+
   test('reads a parameter list that runs over several lines', () => {
     const source = 'class Rule\n  def initialize(\n    rules: Rules.instance,\n    clock: Time\n  )\n  end\nend\n'
     expect(outlineOf(source).methods.get('Rule#initialize')?.params).toBe('rules: Rules.instance, clock: Time')

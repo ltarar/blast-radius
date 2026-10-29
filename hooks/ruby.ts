@@ -55,12 +55,41 @@ const walk = (source: string, visit: (line: string, lineNo: number, stack: Scope
   })
 }
 
+const DEF_OPEN = /^\s*(?:(?:private|protected|public)\s+)?def\s+(?:self\.)?[a-zA-Z_]\w*[?!=]?\s*\(/
+
+// Where the bracket opened at `open` closes, skipping brackets inside strings; -1 if it doesn't close.
+const closingBracket = (text: string, open: number) => {
+  let depth = 0
+  let quote = ''
+  let escaped = false
+  for (let i = open; i < text.length; i++) {
+    const char = text.charAt(i)
+    if (quote) {
+      if (escaped) escaped = false
+      else if (char === '\\') escaped = true
+      else if (char === quote) quote = ''
+    } else if (char === '"' || char === "'") quote = char
+    else if ('([{'.includes(char)) depth++
+    else if (')]}'.includes(char) && --depth === 0) return i
+  }
+  return -1
+}
+
 // A `def` line whose parameter list runs onto the lines below, joined into one line.
 const fullDef = (lines: string[], at: number) => {
   let line = lines[at] ?? ''
-  if (!/def\s+[^(]*\([^)]*$/.test(line)) return line
-  for (let i = at + 1; i < lines.length && !line.includes(')'); i++) line += ` ${(lines[i] ?? '').trim()}`
+  const open = line.match(DEF_OPEN)?.[0].length
+  if (open === undefined) return line
+  for (let i = at + 1; i < lines.length && closingBracket(line, open - 1) === -1; i++) line += ` ${(lines[i] ?? '').trim()}`
   return line
+}
+
+// The parameters written between a def's brackets, or after its name when it has none.
+const paramsOf = (line: string, bare: string | undefined) => {
+  const open = line.match(DEF_OPEN)?.[0].length
+  if (open === undefined) return bare ?? ''
+  const close = closingBracket(line, open - 1)
+  return line.slice(open, close === -1 ? undefined : close)
 }
 
 export const outlineOf = (source: string): Outline => {
@@ -96,12 +125,13 @@ export const outlineOf = (source: string): Outline => {
       if (target) outline.aliases.set(name, target)
       return
     }
-    const def = fullDef(lines, lineNo - 1).match(DEF)
+    const defLine = fullDef(lines, lineNo - 1)
+    const def = defLine.match(DEF)
     if (def?.[2] && here) {
       const isClassMethod = Boolean(def[1]) || body?.kind === 'singleton'
       // A bare `private` only covers instance methods, so `def self.x` below it stays public.
       const isPrivate = /^\s*(private|protected)\s+def/.test(line) || (!def[1] && Boolean(body?.isPrivate))
-      const params = (def[4] ?? def[5] ?? '').replace(/,\s*$/, '').trim()
+      const params = paramsOf(defLine, def[5]).replace(/,\s*$/, '').trim()
       outline.methods.set(methodKey(here, def[2], isClassMethod), { owner: here, name: def[2], isClassMethod, params, isPrivate })
     }
   })
