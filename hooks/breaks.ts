@@ -1,5 +1,5 @@
 import type { Break, RepoUses, TodoChange, Usage } from '../types'
-import { addTodo, diffTodo, importPattern, importsRelatively, isTest, isTodoFile, languageOf, modulePathOf, moduleTailOf, parseTodo, referencePattern, referencesIn, relativeImportPattern } from './radius'
+import { addTodo, diffTodo, importPattern, importsModule, isTest, isTodoFile, languageOf, modulePathOf, moduleTailOf, parseTodo, referencePattern, referencesIn, relativeImportPattern } from './radius'
 import { breakingChanges, callArguments, fitsCall, mergeOutlines, methodKey, outlineOf, resolveReference, scopesAt } from './ruby'
 import type { Outline, RubyChange } from './ruby'
 
@@ -206,11 +206,10 @@ async function jsBreaks(repo: Repo, files: string[], others: Repo[]) {
     if (replaced) continue
 
     const modulePath = modulePathOf(path)
-    const byTail = await repo.grep(importPattern(tail))
-    const relative = (await repo.grep(relativeImportPattern(modulePath.split('/').pop() ?? ''))).filter(
-      hit => importsRelatively(hit.path, hit.code, modulePath) && !byTail.some(other => other.path === hit.path && other.line === hit.line),
+    const hits = [...(await repo.grep(importPattern(tail))), ...(await repo.grep(relativeImportPattern(modulePath.split('/').pop() ?? '')))]
+    const here = splitTests(
+      hits.filter((hit, i) => importsModule(hit.path, hit.code, modulePath, tail) && hits.findIndex(other => other.path === hit.path && other.line === hit.line) === i),
     )
-    const here = splitTests([...byTail, ...relative])
     const repoUses: RepoUses[] = []
     for (const other of others) {
       const hits = splitTests(await other.grep(importPattern(tail)))

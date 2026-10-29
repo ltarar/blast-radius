@@ -91,9 +91,11 @@ export const relativeImportPattern = (name: string): string => {
   return `(from|import|require\\()[[:space:]]*['"]\\.\\.?/([^'"]*/)?${escapeRegExp(name)}(/index)?(\\.(m?js|jsx|ts|tsx))?['"]`
 }
 
-// Whether a line in `fromFile` imports `modulePath` by a relative path.
-export const importsRelatively = (fromFile: string, code: string, modulePath: string): boolean =>
-  [...code.matchAll(/(?:from|import|require\()\s*['"](\.\.?\/[^'"]*)['"]/g)].some(([, specifier = '']) => {
+// Whether a line in `fromFile` imports the module at `modulePath`: a relative path must resolve to it,
+// any other path (an alias such as `@/components/Button`) must end in its `tail`.
+export const importsModule = (fromFile: string, code: string, modulePath: string, tail: string): boolean =>
+  [...code.matchAll(/(?:from|import|require\()\s*['"]([^'"]+)['"]/g)].some(([, specifier = '']) => {
+    if (!/^\.\.?\//.test(specifier)) return modulePathOf(specifier) === tail || modulePathOf(specifier).endsWith(`/${tail}`)
     const parts = fromFile.split('/').slice(0, -1)
     for (const part of specifier.split('/')) {
       if (part === '..') parts.pop()

@@ -164,6 +164,11 @@ describe('what breaks', () => {
     expect(await findBreaks(repo, ['src/components/Button.tsx'], [])).toEqual([])
   })
 
+  test('a relative import that points at a same-named file still there stays quiet', async () => {
+    const repo = repoOf('web', { 'src/new/pages/Home.tsx': "import Button from '../components/Button'\n", 'src/new/components/Button.tsx': 'export default 1\n' })
+    expect(await findBreaks(repo, ['src/old/components/Button.tsx'], [])).toEqual([])
+  })
+
   test('two deleted JS files with the same import path, both still imported', async () => {
     const repo = repoOf('web', { 'src/pages/Home.tsx': "import { Button } from '../components/Button'\n" })
     const found = await findBreaks(repo, ['src/components/Button.tsx', 'src/components/Button/index.ts'], [])
