@@ -105,6 +105,13 @@ describe('what breaks', () => {
     })
   })
 
+  test('a removed Sidekiq worker is named in full, as Sidekiq stores it', async () => {
+    const worker = 'module Leads\n  module Workers\n    class Reminder\n      include Sidekiq::Job\n\n      def perform(lead_id)\n        lead_id\n      end\n    end\n  end\nend\n'
+    const repo = repoOf('api', {}, { 'app/leads/workers/reminder.rb': worker })
+    const [found] = await findBreaks(repo, ['app/leads/workers/reminder.rb'], [])
+    expect(found?.text).toBe('You removed the Sidekiq worker Leads::Workers::Reminder. Jobs already queued under that name will fail.')
+  })
+
   test('a deleted JS file that is still imported', async () => {
     const repo = repoOf('web', { 'src/pages/Home.tsx': "import { Button } from '../components/Button'\n" })
     const [found] = await findBreaks(repo, ['src/components/Button.tsx'], [])

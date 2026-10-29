@@ -105,21 +105,21 @@ export const describe = (change: RubyChange, count: number): Pick<Break, 'level'
   if (change.kind === 'worker-removed') {
     return {
       level: 'red',
-      text: `You removed the Sidekiq worker ${shortLabel(change.worker)}. Jobs already queued under that name will fail.`,
+      text: `You removed the Sidekiq worker ${change.worker}. Jobs already queued under that name will fail.`,
       fix: change.renamedTo ? `Keep an alias for the old name: ${change.worker} = ::${change.renamedTo}` : 'Keep the class until its queue is empty.',
     }
   }
   if (change.kind === 'worker-alias-removed') {
     return {
       level: 'yellow',
-      text: `You removed ${shortLabel(change.alias)}, an alias that keeps older Sidekiq jobs working. Jobs still queued under that name will fail.`,
+      text: `You removed ${change.alias}, an alias that keeps older Sidekiq jobs working. Jobs still queued under that name will fail.`,
       fix: 'Remove it only once Sidekiq has no jobs under this name.',
     }
   }
   if (change.kind === 'worker-arguments') {
     return {
       level: 'red',
-      text: `You changed ${shortLabel(change.worker)}#perform from (${change.before}) to (${change.after}). Jobs already queued carry the old arguments.`,
+      text: `You changed ${change.worker}#perform from (${change.before}) to (${change.after}). Jobs already queued carry the old arguments.`,
       fix: 'Accept both forms until the queue is empty.',
     }
   }
