@@ -255,27 +255,27 @@ export const register: Register = (on, options) => {
     const repo = repoOf(e.file_path, await reposRoot($))
     if (repo) await addFocus($, [repo])
     return ran
-  }).catch(($, e, next) => next(e))
+  }).catch((_$, e, next) => next(e))
 
   on('tool.call', { tool: 'Write' }, async ($, e, next) => {
     const ran = await next(e)
     const repo = repoOf(e.file_path, await reposRoot($))
     if (repo) await addFocus($, [repo])
     return ran
-  }).catch(($, e, next) => next(e))
+  }).catch((_$, e, next) => next(e))
 
   on('turn.complete', async ($, e, next) => {
     const done = await next(e)
     if (e.agentId === undefined) void refresh($)
     return done
-  }).catch(($, e, next) => next(e))
+  }).catch((_$, e, next) => next(e))
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Text } = $.ui.resolve(e)
     return (
       <Box flexDirection="column">
-        {paneLines(await read($, repos)).map(line => (
-          <Text bold={line.bold} dimColor={line.dim} color={line.color}>
+        {paneLines(await read($, repos)).map((line, i) => (
+          <Text key={i} bold={line.bold} dimColor={line.dim} color={line.color}>
             {line.text}
           </Text>
         ))}
