@@ -128,6 +128,12 @@ describe('what breaks', () => {
     const [found] = await findBreaks(repo, ['src/components/Button.tsx'], [])
     expect(found?.text).toBe('You deleted src/components/Button.tsx, but 1 place still imports it. It will break:')
   })
+
+  test('two deleted JS files with the same import path, both still imported', async () => {
+    const repo = repoOf('web', { 'src/pages/Home.tsx': "import { Button } from '../components/Button'\n" })
+    const found = await findBreaks(repo, ['src/components/Button.tsx', 'src/components/Button/index.ts'], [])
+    expect(found.length).toBeGreaterThan(0)
+  })
 })
 
 describe('Packwerk', () => {

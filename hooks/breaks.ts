@@ -189,7 +189,9 @@ async function jsBreaks(repo: Repo, files: string[], others: Repo[]) {
   for (const path of files.filter(file => languageOf(file) === 'js' && !isTest(file))) {
     if ((await repo.read(path)) !== undefined) continue
     const tail = moduleTailOf(path)
-    if (files.some(file => file !== path && languageOf(file) === 'js' && moduleTailOf(file) === tail)) continue
+    const twins = files.filter(file => file !== path && languageOf(file) === 'js' && moduleTailOf(file) === tail)
+    const replaced = (await Promise.all(twins.map(file => repo.read(file)))).some(source => source !== undefined)
+    if (replaced) continue
 
     const here = splitTests(await repo.grep(importPattern(tail)))
     const repoUses: RepoUses[] = []
