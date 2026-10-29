@@ -80,7 +80,7 @@ export const moduleTailOf = (path: string): string => {
 }
 
 export const importPattern = (tail: string): string => {
-  return `(from|import|require\\()[[:space:]]*['"][^'"]*${escapeRegExp(tail)}(\\.(m?js|jsx|ts|tsx))?['"]`
+  return `(from|import\\(?|require\\()[[:space:]]*['"][^'"]*${escapeRegExp(tail)}(\\.(m?js|jsx|ts|tsx))?['"]`
 }
 
 // The path a JS/TS module is imported by, without its extension or a trailing `index`.
@@ -88,13 +88,13 @@ export const modulePathOf = (path: string): string => path.replace(/\.(m?js|jsx|
 
 // Imports of a relative path ending in `name`, such as `./Button`, which `importPattern` can't see.
 export const relativeImportPattern = (name: string): string => {
-  return `(from|import|require\\()[[:space:]]*['"]\\.\\.?/([^'"]*/)?${escapeRegExp(name)}(/index)?(\\.(m?js|jsx|ts|tsx))?['"]`
+  return `(from|import\\(?|require\\()[[:space:]]*['"]\\.\\.?/([^'"]*/)?${escapeRegExp(name)}(/index)?(\\.(m?js|jsx|ts|tsx))?['"]`
 }
 
 // Whether a line in `fromFile` imports the module at `modulePath`: a relative path must resolve to it,
 // any other path (an alias such as `@/components/Button`) must end in its `tail`.
 export const importsModule = (fromFile: string, code: string, modulePath: string, tail: string): boolean =>
-  [...code.matchAll(/(?:from|import|require\()\s*['"]([^'"]+)['"]/g)].some(([, specifier = '']) => {
+  [...code.matchAll(/(?:from|import\(?|require\()\s*['"]([^'"]+)['"]/g)].some(([, specifier = '']) => {
     if (!/^\.\.?\//.test(specifier)) return modulePathOf(specifier) === tail || modulePathOf(specifier).endsWith(`/${tail}`)
     const parts = fromFile.split('/').slice(0, -1)
     for (const part of specifier.split('/')) {

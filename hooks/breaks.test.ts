@@ -175,6 +175,17 @@ describe('what breaks', () => {
     expect(found?.text).toBe('You deleted src/old/components/Button.tsx, but 1 place still imports it. It will break:')
   })
 
+  test('a deleted JS file loaded with import()', async () => {
+    const repo = repoOf('web', { 'src/pages/Home.tsx': "const Button = lazy(() => import('../components/Button'))\n" })
+    const [found] = await findBreaks(repo, ['src/components/Button.tsx'], [])
+    expect(found?.text).toBe('You deleted src/components/Button.tsx, but 1 place still imports it. It will break:')
+  })
+
+  test('a deleted JS file loaded with import() from its own folder', async () => {
+    const repo = repoOf('web', { 'src/components/Home.tsx': "const Button = lazy(() => import('./Button'))\n" })
+    expect((await findBreaks(repo, ['src/components/Button.tsx'], [])).length).toBe(1)
+  })
+
   test('two deleted JS files with the same import path, both still imported', async () => {
     const repo = repoOf('web', { 'src/pages/Home.tsx': "import { Button } from '../components/Button'\n" })
     const found = await findBreaks(repo, ['src/components/Button.tsx', 'src/components/Button/index.ts'], [])
