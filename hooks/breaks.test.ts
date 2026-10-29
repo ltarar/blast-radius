@@ -54,6 +54,17 @@ describe('what stays quiet', () => {
   })
 })
 
+describe('a method made private', () => {
+  test('breaks callers, since the private method no longer answers them', async () => {
+    const before = 'module Pricing\n  class Quote\n    def total(items)\n      items\n    end\n  end\nend\n'
+    const after = before.replace('    def total', '    private\n\n    def total')
+    const caller = 'class BasketsController\n  def show\n    Pricing::Quote.new.total(items)\n  end\nend\n'
+    const repo = repoOf('shop', { 'lib/pricing/quote.rb': after, 'app/baskets_controller.rb': caller }, { 'lib/pricing/quote.rb': before })
+    const [found] = await findBreaks(repo, ['lib/pricing/quote.rb'], [])
+    expect(found?.text).toContain('Quote#total')
+  })
+})
+
 describe('a class moved up a namespace', () => {
   const base = (namespace: string) => `module Leads\n${namespace ? `  module ${namespace}\n` : ''}    class BaseStep\n    end\n${namespace ? '  end\n' : ''}end\n`
   const nested = 'module Leads\n  module Steps\n    class Assign < BaseStep\n    end\n  end\nend\n'

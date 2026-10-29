@@ -14,7 +14,7 @@ export type Repo = {
   filesMentioning: (word: string) => Promise<string[]>
 }
 
-// Whether some file in the repo still defines `name` (a constant, or `Owner.method` / `Owner#method`).
+// Whether some file in the repo still defines `name` (a constant, or a public `Owner.method` / `Owner#method`).
 async function isDefinedAnywhere(repo: Repo, name: string) {
   const method = name.match(/^(.*)([.#])([^.#:]+)$/)
   const shortName = (method?.[3] ?? name.split('::').pop() ?? name).replace(/[?!=]$/, '')
@@ -26,7 +26,9 @@ async function isDefinedAnywhere(repo: Repo, name: string) {
     const source = await repo.read(path)
     if (!source) continue
     const outline = outlineOf(source)
-    if (method ? outline.methods.has(name) : outline.constants.has(name)) return true
+    const def = outline.methods.get(name)
+    const callable = def !== undefined && (!def.isPrivate || def.name === 'initialize')
+    if (method ? callable : outline.constants.has(name)) return true
   }
   return false
 }
