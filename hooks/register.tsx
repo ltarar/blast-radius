@@ -16,6 +16,8 @@ const focus = atom({ plugin: 'blast-radius', key: 'focus' } as const, [])
 const showAll = atom({ plugin: 'blast-radius', key: 'showAll' } as const, false)
 // The last check of each repo, kept while its diff stays the same, since the pane re-checks after every turn.
 const lastCheck = new Map<string, { diff: string; blast: RepoBlast }>()
+// Refreshes overlap (session start, focus changes, every turn), so only the newest may write its results.
+let newestRefresh = 0
 
 let rootSetting = ''
 let root: Promise<string> | undefined
@@ -74,7 +76,7 @@ function repoAt($: EngineInterface, name: string, repoRoot: string, base: string
   }
 }
 
-async function blastOfRepo($: EngineInterface, repo: string, consumers: Consumer[]): Promise<RepoBlast | undefined> {
+async function blastOfRepo($: EngineInterface, repo: string, consumers: Consumer[], run: number): Promise<RepoBlast | undefined> {
   const rootDir = await reposRoot($)
   const repoRoot = `${rootDir}/${repo}`
   const base = await baseOf($, repoRoot)
@@ -97,7 +99,7 @@ async function blastOfRepo($: EngineInterface, repo: string, consumers: Consumer
     breaks: await findBreaks(here, files, others),
     todo: await todoOf(here, files),
   }
-  lastCheck.set(repo, { diff: fullDiff, blast })
+  if (run === newestRefresh) lastCheck.set(repo, { diff: fullDiff, blast })
   return blast
 }
 
@@ -125,10 +127,12 @@ async function focusedRepos($: EngineInterface) {
 }
 
 async function refresh($: EngineInterface) {
+  const run = ++newestRefresh
   const all = await gitRepos($)
   const focused = await focusedRepos($)
   const scope = (await read($, showAll)) ? all : all.filter(name => focused.has(name))
   if (scope.length === 0) {
+    if (run !== newestRefresh) return
     await update($, repos, () => [])
     $.ui.status(undefined)
     return
@@ -146,9 +150,10 @@ async function refresh($: EngineInterface) {
   const found: RepoBlast[] = []
   for (const name of scope) {
     const consumers = consumersOf(name, await publishedBy($, `${rootDir}/${name}`), manifests)
-    const blast = await blastOfRepo($, name, consumers).catch(() => undefined)
+    const blast = await blastOfRepo($, name, consumers, run).catch(() => undefined)
     if (blast) found.push(blast)
   }
+  if (run !== newestRefresh) return
   await update($, repos, () => found)
   $.ui.status(found.length > 0 ? summary(found) : undefined)
 }
