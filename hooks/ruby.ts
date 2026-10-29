@@ -207,9 +207,11 @@ export const breakingChanges = (before: Outline, after: Outline): RubyChange[] =
       changes.push({ kind: 'worker-removed', worker, renamedTo })
       continue
     }
+    // An alias keeps the old name working, and its perform lives on the class it points at, possibly in a file the branch didn't touch.
+    const target = after.aliases.get(worker)?.replace(/^::/, '')
     const old = before.methods.get(methodKey(worker, 'perform', false))
-    const now = after.methods.get(methodKey(worker, 'perform', false))
-    if (old && !now) changes.push({ kind: 'worker-perform-removed', worker, parent: after.parents.get(worker) })
+    const now = after.methods.get(methodKey(target ?? worker, 'perform', false))
+    if (old && !now && !target) changes.push({ kind: 'worker-perform-removed', worker, parent: after.parents.get(worker) })
     else if (old && now && !isCompatible(old.params, now.params)) {
       changes.push({ kind: 'worker-arguments', worker, before: old.params, after: now.params })
     }

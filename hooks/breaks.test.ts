@@ -132,6 +132,14 @@ describe('what breaks', () => {
     })
   })
 
+  test('a Sidekiq worker moved behind an alias for its old name stays quiet', async () => {
+    const worker = 'module Leads\n  module Workers\n    class Reminder\n      include Sidekiq::Job\n\n      def perform(lead_id)\n        lead_id\n      end\n    end\n  end\nend\n'
+    const old = 'module Workers\n  class Reminder\n    include Sidekiq::Job\n\n    def perform(lead_id)\n      lead_id\n    end\n  end\nend\n'
+    const alias = 'module Workers\n  Reminder = Leads::Workers::Reminder\nend\n'
+    const repo = repoOf('api', { 'app/leads/workers/reminder.rb': worker, 'app/workers/reminder.rb': alias }, { 'app/workers/reminder.rb': old })
+    expect(await findBreaks(repo, ['app/workers/reminder.rb', 'app/leads/workers/reminder.rb'], [])).toEqual([])
+  })
+
   test('a removed Sidekiq worker is named in full, as Sidekiq stores it', async () => {
     const worker = 'module Leads\n  module Workers\n    class Reminder\n      include Sidekiq::Job\n\n      def perform(lead_id)\n        lead_id\n      end\n    end\n  end\nend\n'
     const repo = repoOf('api', {}, { 'app/leads/workers/reminder.rb': worker })
