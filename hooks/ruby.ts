@@ -280,9 +280,12 @@ export const callArguments = (code: string, name: string): string | undefined =>
 export const fitsCall = (params: string, args: string): boolean | undefined => {
   const parts = splitTopLevel(args)
   if (parts.some(part => part.startsWith('*') || part.startsWith('&'))) return undefined
-  const keywords = parts.map(part => part.match(/^(\w+):(?!:)/)?.[1]).filter((key): key is string => Boolean(key))
-  const positional = parts.filter(part => !/^(\w+):(?!:)/.test(part)).length
   const wanted = parseParams(params)
+  const named = parts.map(part => part.match(/^(\w+):(?!:)/)?.[1]).filter((key): key is string => Boolean(key))
+  // Without any keyword parameters, Ruby passes keywords on as one positional hash.
+  const asHash = named.length > 0 && !wanted.some(p => p.kind === 'keyreq' || p.kind === 'key' || p.kind === 'keyrest')
+  const keywords = asHash ? [] : named
+  const positional = parts.filter(part => !/^(\w+):(?!:)/.test(part)).length + (asHash ? 1 : 0)
   const count = (...kinds: Param['kind'][]) => wanted.filter(p => kinds.includes(p.kind)).length
   const names = (...kinds: Param['kind'][]) => wanted.filter(p => kinds.includes(p.kind)).map(p => p.name)
 

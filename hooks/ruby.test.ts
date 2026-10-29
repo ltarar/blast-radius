@@ -145,6 +145,13 @@ describe('calls', () => {
     expect(fitsCall('items', '*all')).toBeUndefined()
   })
 
+  test('reads keywords as one positional hash when the method takes no keywords', () => {
+    expect(fitsCall('options', 'currency: :gbp')).toBe(true)
+    expect(fitsCall('items, options = {}', 'items, currency: :gbp')).toBe(true)
+    expect(fitsCall('', 'currency: :gbp')).toBe(false)
+    expect(fitsCall('items', 'items, currency: :gbp')).toBe(false)
+  })
+
   test('reads commas and brackets inside a string as part of one argument', () => {
     expect(fitsCall('value', '"a, b"')).toBe(true)
     expect(fitsCall('value', "'a, (b'")).toBe(true)
