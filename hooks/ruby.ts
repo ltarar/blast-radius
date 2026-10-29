@@ -129,14 +129,23 @@ type Param = { name: string; kind: 'req' | 'opt' | 'rest' | 'keyreq' | 'key' | '
 const splitTopLevel = (text: string) => {
   const parts: string[] = []
   let depth = 0
+  let quote = ''
+  let escaped = false
   let current = ''
   for (const char of text) {
-    if ('([{'.includes(char)) depth++
-    if (')]}'.includes(char)) depth--
-    if (char === ',' && depth === 0) {
+    if (quote) {
+      if (escaped) escaped = false
+      else if (char === '\\') escaped = true
+      else if (char === quote) quote = ''
+    } else if (char === '"' || char === "'") quote = char
+    else if ('([{'.includes(char)) depth++
+    else if (')]}'.includes(char)) depth--
+    else if (char === ',' && depth === 0) {
       parts.push(current)
       current = ''
-    } else current += char
+      continue
+    }
+    current += char
   }
   if (current.trim()) parts.push(current)
   return parts.map(part => part.trim()).filter(Boolean)

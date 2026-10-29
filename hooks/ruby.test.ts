@@ -142,6 +142,13 @@ describe('calls', () => {
     expect(fitsCall('items', '*all')).toBeUndefined()
   })
 
+  test('reads commas and brackets inside a string as part of one argument', () => {
+    expect(fitsCall('value', '"a, b"')).toBe(true)
+    expect(fitsCall('value', "'a, (b'")).toBe(true)
+    expect(fitsCall('value', '"say \\"a, b\\""')).toBe(true)
+    expect(fitsCall('value', '"a", "b"')).toBe(false)
+  })
+
   test('reads a parameter list that runs over several lines', () => {
     const source = 'class Rule\n  def initialize(\n    rules: Rules.instance,\n    clock: Time\n  )\n  end\nend\n'
     expect(outlineOf(source).methods.get('Rule#initialize')?.params).toBe('rules: Rules.instance, clock: Time')
