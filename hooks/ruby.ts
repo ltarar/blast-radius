@@ -99,7 +99,8 @@ export const outlineOf = (source: string): Outline => {
     const def = fullDef(lines, lineNo - 1).match(DEF)
     if (def?.[2] && here) {
       const isClassMethod = Boolean(def[1]) || body?.kind === 'singleton'
-      const isPrivate = /^\s*(private|protected)\s+def/.test(line) || Boolean(body?.isPrivate)
+      // A bare `private` only covers instance methods, so `def self.x` below it stays public.
+      const isPrivate = /^\s*(private|protected)\s+def/.test(line) || (!def[1] && Boolean(body?.isPrivate))
       const params = (def[4] ?? def[5] ?? '').replace(/,\s*$/, '').trim()
       outline.methods.set(methodKey(here, def[2], isClassMethod), { owner: here, name: def[2], isClassMethod, params, isPrivate })
     }

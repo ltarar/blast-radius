@@ -43,6 +43,14 @@ describe('outline', () => {
     expect(outline.methods.get('Pricing::Quote.calculate')?.params).toBe('items, currency: :gbp')
   })
 
+  test('keeps a class method public below a bare private, as Ruby does', () => {
+    const source = 'class Quote\n  private\n\n  def self.calculate(items)\n  end\n\n  def total\n  end\nend\n'
+    expect(outlineOf(source).methods.get('Quote.calculate')?.isPrivate).toBe(false)
+    expect(outlineOf(source).methods.get('Quote#total')?.isPrivate).toBe(true)
+    const singleton = 'class Quote\n  class << self\n    private\n\n    def calculate(items)\n    end\n  end\nend\n'
+    expect(outlineOf(singleton).methods.get('Quote.calculate')?.isPrivate).toBe(true)
+  })
+
   test('reads compact and absolute names', () => {
     expect([...outlineOf('class Pricing::Quote\nend\nmodule Shop\n  class ::Basket\n  end\nend\n').constants]).toEqual([
       'Pricing::Quote',
