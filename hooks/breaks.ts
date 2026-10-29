@@ -221,7 +221,12 @@ export const findBreaks = async (repo: Repo, files: string[], others: Repo[]): P
 export async function todoOf(repo: Repo, files: string[]): Promise<TodoChange | undefined> {
   let todo: TodoChange | undefined
   for (const path of files.filter(isTodoFile)) {
-    todo = addTodo(todo, diffTodo(parseTodo((await repo.readBefore(path)) ?? ''), parseTodo((await repo.read(path)) ?? '')))
+    const before = parseTodo((await repo.readBefore(path)) ?? '')
+    const after = parseTodo((await repo.read(path)) ?? '')
+    const gone = [...new Set(Object.entries(before).flatMap(([key, files]) => files.filter(file => !(after[key] ?? []).includes(file))))]
+    const present = await Promise.all(gone.map(async file => (await repo.read(file)) !== undefined))
+    const existing = new Set(gone.filter((_, i) => present[i]))
+    todo = addTodo(todo, diffTodo(before, after, file => existing.has(file)))
   }
   return todo
 }

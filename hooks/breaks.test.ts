@@ -153,4 +153,20 @@ describe('Packwerk', () => {
     const repo = repoOf('pricing', { 'packages/checkout/package_todo.yml': todo }, {})
     expect((await todoOf(repo, ['packages/checkout/package_todo.yml']))?.added).toBe(1)
   })
+
+  const listing = (file: string) => `---\n"packages/discounts":\n  "::Discounts::VoucherCode":\n    violations:\n    - privacy\n    files:\n    - ${file}\n`
+
+  test('a fixed break and a new one in a file that still exists are not a move', async () => {
+    const repo = repoOf(
+      'pricing',
+      { 'package_todo.yml': listing('packages/checkout/b.rb'), 'packages/checkout/a.rb': '', 'packages/checkout/b.rb': '' },
+      { 'package_todo.yml': listing('packages/checkout/a.rb') },
+    )
+    expect(await todoOf(repo, ['package_todo.yml'])).toMatchObject({ added: 1, fixed: 1, moved: 0 })
+  })
+
+  test('a break whose old file is gone has moved', async () => {
+    const repo = repoOf('pricing', { 'package_todo.yml': listing('packages/checkout/b.rb'), 'packages/checkout/b.rb': '' }, { 'package_todo.yml': listing('packages/checkout/a.rb') })
+    expect(await todoOf(repo, ['package_todo.yml'])).toMatchObject({ added: 0, fixed: 0, moved: 1 })
+  })
 })

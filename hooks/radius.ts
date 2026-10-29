@@ -164,18 +164,20 @@ const shortPath = (path: string, from?: string) => {
   return path.split('/').slice(Math.max(0, shared)).join('/')
 }
 
-export const diffTodo = (before: Record<string, string[]>, after: Record<string, string[]>): TodoChange => {
+// A listing whose file still exists can't have moved, so it pairs with a new one only when its file is gone.
+export const diffTodo = (before: Record<string, string[]>, after: Record<string, string[]>, stillExists: (file: string) => boolean = () => false): TodoChange => {
   const change: TodoChange = { added: 0, fixed: 0, moved: 0, items: [] }
   for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
     const rule = ruleLabel(key)
     const now = after[key] ?? []
     const gone = (before[key] ?? []).filter(file => !now.includes(file))
     const arrived = now.filter(file => !(before[key] ?? []).includes(file))
-    const pairs = Math.min(gone.length, arrived.length)
+    const movedFrom = gone.filter(file => !stillExists(file)).slice(0, arrived.length)
+    const pairs = movedFrom.length
     const items: TodoItem[] = [
-      ...arrived.slice(0, pairs).map((file, i) => ({ kind: 'moved' as const, rule, from: shortPath(gone[i] ?? '', file), file: shortPath(file, gone[i]) })),
+      ...arrived.slice(0, pairs).map((file, i) => ({ kind: 'moved' as const, rule, from: shortPath(movedFrom[i] ?? '', file), file: shortPath(file, movedFrom[i]) })),
       ...arrived.slice(pairs).map(file => ({ kind: 'new' as const, rule, file })),
-      ...gone.slice(pairs).map(file => ({ kind: 'fixed' as const, rule, file })),
+      ...gone.filter(file => !movedFrom.includes(file)).map(file => ({ kind: 'fixed' as const, rule, file })),
     ]
     change.moved += pairs
     change.added += arrived.length - pairs
