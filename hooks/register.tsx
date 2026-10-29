@@ -82,7 +82,9 @@ async function blastOfRepo($: EngineInterface, repo: string, consumers: Consumer
   const untracked = await git($, repoRoot, ['ls-files', '--others', '--exclude-standard'])
   const files = changedFiles(diff ?? '', untracked ?? '')
   if (files.length === 0) return undefined
-  const fullDiff = `${await git($, repoRoot, ['diff', base])}\n${untracked}\n${consumers.map(c => c.repo).join(',')}`
+  const untrackedFiles = (untracked ?? '').split('\n').filter(Boolean)
+  const untrackedContents = untrackedFiles.length > 0 ? await git($, repoRoot, ['hash-object', '--', ...untrackedFiles]) : ''
+  const fullDiff = `${await git($, repoRoot, ['diff', base])}\n${untracked}\n${untrackedContents}\n${consumers.map(c => c.repo).join(',')}`
   const last = lastCheck.get(repo)
   if (last?.diff === fullDiff) return last.blast
 
@@ -235,6 +237,8 @@ export const register: Register = (on, options) => {
       await update($, showAll, () => false)
     } else await update($, showAll, () => false)
 
+    // Asking for the pane checks again from scratch, since the cache can't see edits in other repos.
+    lastCheck.clear()
     await refresh($)
     await $.ui.open({ id: PANE, title: 'Blast radius', rows: Math.min(MAX_PANE_ROWS, paneLines(await read($, repos)).length) })
     const shown = await read($, showAll)
