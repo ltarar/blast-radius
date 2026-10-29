@@ -46,6 +46,11 @@ describe('names', () => {
   test('parses git grep hits', () => {
     expect(parseGrepHits('lib/a.rb:12:    Foo::Bar.new(x)\n')).toEqual([{ path: 'lib/a.rb', line: 12, code: 'Foo::Bar.new(x)' }])
   })
+
+  test('keeps the whole line, so a call late in a long line can still be checked', () => {
+    const code = `${'x'.repeat(100)} = Pricing::Quote.calculate(items, currency: :gbp)`
+    expect(parseGrepHits(`lib/a.rb:3:${code}\n`)[0]?.code).toBe(code)
+  })
 })
 
 describe('repos', () => {

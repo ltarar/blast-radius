@@ -83,13 +83,13 @@ export const importPattern = (tail: string): string => {
   return `(from|import|require\\()[[:space:]]*['"][^'"]*${escapeRegExp(tail)}(\\.(m?js|jsx|ts|tsx))?['"]`
 }
 
-// `git grep -n` output as usages, code trimmed to one short line.
+// `git grep -n` output as usages, code trimmed of surrounding space.
 export const parseGrepHits = (stdout: string): Usage[] =>
   stdout
     .split('\n')
     .map(line => line.match(/^([^:]+):(\d+):(.*)$/))
     .filter((match): match is RegExpMatchArray => Boolean(match?.[1] && match[2]))
-    .map(match => ({ path: match[1] ?? '', line: Number(match[2]), code: (match[3] ?? '').trim().slice(0, 100) }))
+    .map(match => ({ path: match[1] ?? '', line: Number(match[2]), code: (match[3] ?? '').trim() }))
 
 export const isTodoFile = (path: string): boolean => path === 'package_todo.yml' || path.endsWith('/package_todo.yml')
 
