@@ -1,5 +1,5 @@
 import type { Break, RepoUses, TodoChange, Usage } from '../types'
-import { addTodo, diffTodo, importPattern, isTest, isTodoFile, languageOf, moduleTailOf, parseTodo, referencePattern, referencesIn } from './radius'
+import { addTodo, diffTodo, importPattern, importsRelatively, isTest, isTodoFile, languageOf, modulePathOf, moduleTailOf, parseTodo, referencePattern, referencesIn, relativeImportPattern } from './radius'
 import { breakingChanges, callArguments, fitsCall, mergeOutlines, methodKey, outlineOf, resolveReference, scopesAt } from './ruby'
 import type { Outline, RubyChange } from './ruby'
 
@@ -193,7 +193,12 @@ async function jsBreaks(repo: Repo, files: string[], others: Repo[]) {
     const replaced = (await Promise.all(twins.map(file => repo.read(file)))).some(source => source !== undefined)
     if (replaced) continue
 
-    const here = splitTests(await repo.grep(importPattern(tail)))
+    const modulePath = modulePathOf(path)
+    const byTail = await repo.grep(importPattern(tail))
+    const relative = (await repo.grep(relativeImportPattern(modulePath.split('/').pop() ?? ''))).filter(
+      hit => importsRelatively(hit.path, hit.code, modulePath) && !byTail.some(other => other.path === hit.path && other.line === hit.line),
+    )
+    const here = splitTests([...byTail, ...relative])
     const repoUses: RepoUses[] = []
     for (const other of others) {
       const hits = splitTests(await other.grep(importPattern(tail)))

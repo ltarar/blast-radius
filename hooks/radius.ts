@@ -83,6 +83,25 @@ export const importPattern = (tail: string): string => {
   return `(from|import|require\\()[[:space:]]*['"][^'"]*${escapeRegExp(tail)}(\\.(m?js|jsx|ts|tsx))?['"]`
 }
 
+// The path a JS/TS module is imported by, without its extension or a trailing `index`.
+export const modulePathOf = (path: string): string => path.replace(/\.(m?js|jsx|ts|tsx)$/, '').replace(/\/index$/, '')
+
+// Imports of a relative path ending in `name`, such as `./Button`, which `importPattern` can't see.
+export const relativeImportPattern = (name: string): string => {
+  return `(from|import|require\\()[[:space:]]*['"]\\.\\.?/([^'"]*/)?${escapeRegExp(name)}(/index)?(\\.(m?js|jsx|ts|tsx))?['"]`
+}
+
+// Whether a line in `fromFile` imports `modulePath` by a relative path.
+export const importsRelatively = (fromFile: string, code: string, modulePath: string): boolean =>
+  [...code.matchAll(/(?:from|import|require\()\s*['"](\.\.?\/[^'"]*)['"]/g)].some(([, specifier = '']) => {
+    const parts = fromFile.split('/').slice(0, -1)
+    for (const part of specifier.split('/')) {
+      if (part === '..') parts.pop()
+      else if (part !== '.' && part !== '') parts.push(part)
+    }
+    return modulePathOf(parts.join('/')) === modulePath
+  })
+
 // `git grep -n` output as usages, code trimmed of surrounding space.
 export const parseGrepHits = (stdout: string): Usage[] =>
   stdout
