@@ -91,11 +91,15 @@ export const relativeImportPattern = (name: string): string => {
   return `(from|import\\(?|require\\()[[:space:]]*['"]\\.\\.?/([^'"]*/)?${escapeRegExp(name)}(/index)?(\\.(m?js|jsx|ts|tsx))?['"]`
 }
 
+const specifiersIn = (code: string) => [...code.matchAll(/(?:from|import\(?|require\()\s*['"]([^'"]+)['"]/g)].map(([, specifier = '']) => specifier)
+const isRelative = (specifier: string) => /^\.\.?\//.test(specifier)
+const endsInTail = (specifier: string, tail: string) => modulePathOf(specifier) === tail || modulePathOf(specifier).endsWith(`/${tail}`)
+
 // Whether a line in `fromFile` imports the module at `modulePath`: a relative path must resolve to it,
 // any other path (an alias such as `@/components/Button`) must end in its `tail`.
 export const importsModule = (fromFile: string, code: string, modulePath: string, tail: string): boolean =>
-  [...code.matchAll(/(?:from|import\(?|require\()\s*['"]([^'"]+)['"]/g)].some(([, specifier = '']) => {
-    if (!/^\.\.?\//.test(specifier)) return modulePathOf(specifier) === tail || modulePathOf(specifier).endsWith(`/${tail}`)
+  specifiersIn(code).some(specifier => {
+    if (!isRelative(specifier)) return endsInTail(specifier, tail)
     const parts = fromFile.split('/').slice(0, -1)
     for (const part of specifier.split('/')) {
       if (part === '..') parts.pop()
@@ -103,6 +107,10 @@ export const importsModule = (fromFile: string, code: string, modulePath: string
     }
     return modulePathOf(parts.join('/')) === modulePath
   })
+
+// Whether a line in another repo imports the module: a relative path there stays inside that repo.
+export const importsFromOutside = (code: string, tail: string): boolean =>
+  specifiersIn(code).some(specifier => !isRelative(specifier) && endsInTail(specifier, tail))
 
 // `git grep -n` output as usages, code trimmed of surrounding space.
 export const parseGrepHits = (stdout: string): Usage[] =>

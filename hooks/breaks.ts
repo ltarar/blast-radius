@@ -1,5 +1,5 @@
 import type { Break, RepoUses, TodoChange, Usage } from '../types'
-import { addTodo, diffTodo, importPattern, importsModule, isTest, isTodoFile, languageOf, modulePathOf, moduleTailOf, parseTodo, referencePattern, referencesIn, relativeImportPattern } from './radius'
+import { addTodo, diffTodo, importPattern, importsFromOutside, importsModule, isTest, isTodoFile, languageOf, modulePathOf, moduleTailOf, parseTodo, referencePattern, referencesIn, relativeImportPattern } from './radius'
 import { breakingChanges, callArguments, fitsCall, mergeOutlines, methodKey, outlineOf, resolveReference, scopesAt } from './ruby'
 import type { Outline, RubyChange } from './ruby'
 
@@ -226,7 +226,7 @@ async function jsBreaks(repo: Repo, files: string[], others: Repo[]) {
     )
     const repoUses: RepoUses[] = []
     for (const other of others) {
-      const hits = splitTests(await other.grep(importPattern(tail)))
+      const hits = splitTests((await other.grep(importPattern(tail))).filter(hit => importsFromOutside(hit.code, tail)))
       if (hits.uses.length + hits.testUses > 0) repoUses.push({ repo: other.name, ...hits })
     }
     const count = countOf(here, repoUses)
