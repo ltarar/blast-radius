@@ -169,6 +169,12 @@ describe('what breaks', () => {
     expect(await findBreaks(repo, ['src/old/components/Button.tsx'], [])).toEqual([])
   })
 
+  test('a same-named file added in another folder does not replace the deleted one', async () => {
+    const repo = repoOf('web', { 'src/pages/Home.tsx': "import Button from '../old/components/Button'\n", 'src/new/components/Button.tsx': 'export default 1\n' })
+    const [found] = await findBreaks(repo, ['src/old/components/Button.tsx', 'src/new/components/Button.tsx'], [])
+    expect(found?.text).toBe('You deleted src/old/components/Button.tsx, but 1 place still imports it. It will break:')
+  })
+
   test('two deleted JS files with the same import path, both still imported', async () => {
     const repo = repoOf('web', { 'src/pages/Home.tsx': "import { Button } from '../components/Button'\n" })
     const found = await findBreaks(repo, ['src/components/Button.tsx', 'src/components/Button/index.ts'], [])

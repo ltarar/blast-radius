@@ -201,11 +201,11 @@ async function jsBreaks(repo: Repo, files: string[], others: Repo[]) {
   for (const path of files.filter(file => languageOf(file) === 'js' && !isTest(file))) {
     if ((await repo.read(path)) !== undefined) continue
     const tail = moduleTailOf(path)
-    const twins = files.filter(file => file !== path && languageOf(file) === 'js' && moduleTailOf(file) === tail)
+    const modulePath = modulePathOf(path)
+    const twins = files.filter(file => file !== path && languageOf(file) === 'js' && modulePathOf(file) === modulePath)
     const replaced = (await Promise.all(twins.map(file => repo.read(file)))).some(source => source !== undefined)
     if (replaced) continue
 
-    const modulePath = modulePathOf(path)
     const hits = [...(await repo.grep(importPattern(tail))), ...(await repo.grep(relativeImportPattern(modulePath.split('/').pop() ?? '')))]
     const here = splitTests(
       hits.filter((hit, i) => importsModule(hit.path, hit.code, modulePath, tail) && hits.findIndex(other => other.path === hit.path && other.line === hit.line) === i),
