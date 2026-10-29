@@ -26,6 +26,16 @@ const SINGLETON = /^\s*class\s*<<\s*self\b/
 const DEF = /^\s*(?:private\s+|protected\s+|public\s+)?def\s+(self\.)?([a-zA-Z_][\w]*[?!=]?)\s*(\(([^)]*)\)|([^=\n;#]*))?/
 const ASSIGNED_CONSTANT = /^\s*([A-Z][A-Za-z0-9_]*)\s*=[^=~]/
 const VISIBILITY = /^\s*(private|protected|public)\s*$/
+// One-argument checks, so a line is never tested inside a callback that also takes other arguments.
+const opensSingleton = (line: string) => SINGLETON.test(line)
+const closesOnSameLine = (line: string) => /\bend\s*$/.test(line)
+const isEndlessDef = (line: string) => /\)\s*=\s*\S/.test(line)
+const isDef = (line: string) => DEF.test(line)
+const marksWorker = (line: string) => SIDEKIQ.test(line)
+const isPrivateDef = (line: string) => /^\s*(private|protected)\s+def/.test(line)
+const looksLikeWorker = (names: string) => /Workers?::|Worker$/.test(names)
+const isNameChar = (char: string) => /[A-Za-z0-9_?!]/.test(char)
+
 const PARENT = /^\s*class\s+(?:::)?[A-Z][\w:]*\s*<\s*((?:::)?[A-Z][\w:]*)/
 const SIDEKIQ = /^\s*(include\s+Sidekiq::(Job|Worker)\b|sidekiq_options\b)/
 
@@ -46,10 +56,10 @@ const walk = (source: string, visit: (line: string, lineNo: number, stack: Scope
     visit(line, i + 1, stack)
     if (isBlankOrComment(line)) return
     const namespace = line.match(NAMESPACE)
-    if (SINGLETON.test(line)) stack.push({ indent: indentOf(line), kind: 'singleton', name: '', isPrivate: false })
-    else if (namespace?.[2] && !/\bend\s*$/.test(line)) {
+    if (opensSingleton(line)) stack.push({ indent: indentOf(line), kind: 'singleton', name: '', isPrivate: false })
+    else if (namespace?.[2] && !closesOnSameLine(line)) {
       stack.push({ indent: indentOf(line), kind: 'namespace', name: namespace[2], isPrivate: false })
-    } else if (DEF.test(line) && !/\bend\s*$/.test(line) && !/\)\s*=\s*\S/.test(line)) {
+    } else if (isDef(line) && !closesOnSameLine(line) && !isEndlessDef(line)) {
       stack.push({ indent: indentOf(line), kind: 'def', name: '', isPrivate: false })
     }
   })
@@ -106,9 +116,9 @@ export const outlineOf = (source: string): Outline => {
       body.isPrivate = visibility[1] !== 'public'
       return
     }
-    if (here && !isAbstract && SIDEKIQ.test(line)) outline.workers.add(here)
+    if (here && !isAbstract && marksWorker(line)) outline.workers.add(here)
     const namespace = line.match(NAMESPACE)
-    if (namespace?.[2] && !SINGLETON.test(line)) {
+    if (namespace?.[2] && !opensSingleton(line)) {
       const name = namespace[2].startsWith('::') ? namespace[2].slice(2) : here ? `${here}::${namespace[2]}` : namespace[2]
       outline.constants.add(name)
       outline.kinds.set(name, namespace[1] === 'module' ? 'module' : 'class')
@@ -121,7 +131,7 @@ export const outlineOf = (source: string): Outline => {
       const name = here ? `${here}::${constant[1]}` : constant[1]
       outline.constants.add(name)
       outline.kinds.set(name, 'value')
-      const target = line.match(/=\s*((?:::)?[A-Z][\w]*(?:::[A-Z][\w]*)*)\s*(#.*)?$/)?.[1]
+      const target = line.match(/=\s*((?:::)?[A-Z][\w:]*)\s*(?:#.*)?$/)?.[1]
       if (target) outline.aliases.set(name, target)
       return
     }
@@ -130,7 +140,7 @@ export const outlineOf = (source: string): Outline => {
     if (def?.[2] && here) {
       const isClassMethod = Boolean(def[1]) || body?.kind === 'singleton'
       // A bare `private` only covers instance methods, so `def self.x` below it stays public.
-      const isPrivate = /^\s*(private|protected)\s+def/.test(line) || (!def[1] && Boolean(body?.isPrivate))
+      const isPrivate = isPrivateDef(line) || (!def[1] && Boolean(body?.isPrivate))
       const params = paramsOf(defLine, def[5]).replace(/,\s*$/, '').trim()
       outline.methods.set(methodKey(here, def[2], isClassMethod), { owner: here, name: def[2], isClassMethod, params, isPrivate })
     }
@@ -251,7 +261,7 @@ export const breakingChanges = (before: Outline, after: Outline): RubyChange[] =
   for (const constant of removedRoots(before, after)) {
     if (before.workers.has(constant)) continue
     const target = before.aliases.get(constant)
-    const isWorkerAlias = target !== undefined && (workerNames.has(shortName(target)) || /Workers?::|Worker$/.test(`${constant} ${target}`))
+    const isWorkerAlias = target !== undefined && (workerNames.has(shortName(target)) || looksLikeWorker(`${constant} ${target}`))
     changes.push(isWorkerAlias ? { kind: 'worker-alias-removed', alias: constant, target } : { kind: 'constant-removed', constant })
   }
   for (const [key, method] of before.methods) {
@@ -291,7 +301,9 @@ export const mergeOutlines = (outlines: Outline[]): Outline => ({
 // The argument text of the first `.name` call in a line of code: '' for no arguments,
 // or undefined when the call runs onto the next line.
 export const callArguments = (code: string, name: string): string | undefined => {
-  const at = code.search(new RegExp(`\\.${name.replace(/[?!]/g, '\\$&')}(?![A-Za-z0-9_?!])`))
+  const call = `.${name}`
+  let at = code.indexOf(call)
+  while (at !== -1 && isNameChar(code.charAt(at + call.length))) at = code.indexOf(call, at + 1)
   if (at === -1) return undefined
   const rest = code.slice(at + name.length + 1)
   if (rest.startsWith('(')) {

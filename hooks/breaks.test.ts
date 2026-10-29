@@ -10,14 +10,14 @@ const repoOf = (name: string, now: Record<string, string>, before: Record<string
   read: async path => now[path],
   readBefore: async path => before[path],
   grep: async (pattern, only = []) => {
-    const matches = new RegExp(pattern.replaceAll('[[:space:]]', '\\s'))
+    // eslint-disable-next-line security/detect-non-literal-regexp -- the fake grep runs the same patterns git grep -E would
+    const matches = new RegExp(pattern.replaceAll('[[:space:]]', '\\s')) // nosemgrep
+    const isHit = (line: string) => matches.test(line) && !isCommentLine(line)
     return Object.entries(now)
       .filter(([path]) => only.length === 0 || only.includes(path))
-      .flatMap(([path, source]) =>
-        source.split('\n').flatMap((line, i) => (matches.test(line) && !isCommentLine(line) ? [{ path, line: i + 1, code: line.trim() }] : [])),
-      )
+      .flatMap(([path, source]) => source.split('\n').flatMap((line, i) => (isHit(line) ? [{ path, line: i + 1, code: line.trim() }] : [])))
   },
-  filesMentioning: async word => Object.keys(now).filter(path => new RegExp(`\\b${word}\\b`).test(now[path] ?? '')),
+  filesMentioning: async word => Object.keys(now).filter(path => (now[path] ?? '').match(/\w+/g)?.includes(word)),
 })
 
 const quote = (params = 'items, currency:', body = 'new(items.sum(&:price))') =>

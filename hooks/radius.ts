@@ -28,8 +28,7 @@ export const npmNameOf = (packageJson: string): string | undefined => {
   }
 }
 
-export const lockHasGem = (lock: string, gem: string): boolean =>
-  new RegExp(`^ {4}${escapeRegExp(gem)} \\(`, 'm').test(lock)
+export const lockHasGem = (lock: string, gem: string): boolean => lock.split('\n').some(line => line.startsWith(`    ${gem} (`))
 
 export const packageJsonHasDep = (packageJson: string, name: string): boolean => {
   try {
@@ -209,4 +208,9 @@ export const referencePattern = (shortName: string, suffix = ''): string =>
 
 // The constant references in a line of code that end in `shortName`, as written: `Foo`, `A::Foo`, `::A::Foo`.
 export const referencesIn = (code: string, shortName: string): string[] =>
-  [...code.matchAll(new RegExp(`(?<![A-Za-z0-9_])(?:::)?(?:[A-Z][A-Za-z0-9_]*::)*${escapeRegExp(shortName)}(?![A-Za-z0-9_])`, 'g'))].map(m => m[0])
+  [...code.matchAll(/(?<![A-Za-z0-9_])(?:::)?[A-Z][A-Za-z0-9_:]*/g)].flatMap(([path]) => {
+    const absolute = path.startsWith('::')
+    const parts = (absolute ? path.slice(2) : path).split('::')
+    const end = parts.lastIndexOf(shortName)
+    return end === -1 ? [] : [`${absolute ? '::' : ''}${parts.slice(0, end + 1).join('::')}`]
+  })

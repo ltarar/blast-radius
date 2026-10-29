@@ -165,7 +165,10 @@ export const describe = (change: RubyChange, count: number): Pick<Break, 'level'
     : { level: 'yellow', text: `You changed ${what} to take (${params}). ${places(count)} calling that name may no longer fit:` }
 }
 
-const splitTests = (hits: Usage[]) => ({ uses: hits.filter(hit => !isTest(hit.path)), testUses: hits.filter(hit => isTest(hit.path)).length })
+const splitTests = (hits: Usage[]) => ({
+  uses: hits.filter(hit => !isTest(hit.path)),
+  testUses: hits.reduce((count, hit) => count + Number(isTest(hit.path)), 0),
+})
 
 const countOf = (found: { uses: Usage[]; testUses: number }, repoUses: RepoUses[]) =>
   found.uses.length + found.testUses + repoUses.reduce((n, r) => n + r.uses.length + r.testUses, 0)
