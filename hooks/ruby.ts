@@ -102,6 +102,41 @@ const paramsOf = (line: string, bare: string | undefined) => {
   return line.slice(open, close === -1 ? undefined : close)
 }
 
+// A `class` or `module` line: its constant, kind and parent class. False for any other line.
+const readNamespace = (outline: Outline, line: string, here: string): boolean => {
+  const namespace = line.match(NAMESPACE)
+  if (!namespace?.[2] || opensSingleton(line)) return false
+  const name = namespace[2].startsWith('::') ? namespace[2].slice(2) : here ? `${here}::${namespace[2]}` : namespace[2]
+  outline.constants.add(name)
+  outline.kinds.set(name, namespace[1] === 'module' ? 'module' : 'class')
+  const parent = line.match(PARENT)?.[1]
+  if (parent) outline.parents.set(name, parent)
+  return true
+}
+
+// A constant assignment, and what it aliases when it names another constant. False for any other line.
+const readConstant = (outline: Outline, line: string, here: string): boolean => {
+  const constant = line.match(ASSIGNED_CONSTANT)
+  if (!constant?.[1]) return false
+  const name = here ? `${here}::${constant[1]}` : constant[1]
+  outline.constants.add(name)
+  outline.kinds.set(name, 'value')
+  const target = line.match(/=\s*((?:::)?[A-Z][\w:]*)\s*(?:#.*)?$/)?.[1]
+  if (target) outline.aliases.set(name, target)
+  return true
+}
+
+// A `def`, with `defLine` holding its whole parameter list.
+const readDef = (outline: Outline, defLine: string, line: string, here: string, body: Scope | undefined) => {
+  const def = defLine.match(DEF)
+  if (!def?.[2]) return
+  const isClassMethod = Boolean(def[1]) || body?.kind === 'singleton'
+  // A bare `private` only covers instance methods, so `def self.x` below it stays public.
+  const isPrivate = isPrivateDef(line) || (!def[1] && Boolean(body?.isPrivate))
+  const params = paramsOf(defLine, def[5]).replace(/,\s*$/, '').trim()
+  outline.methods.set(methodKey(here, def[2], isClassMethod), { owner: here, name: def[2], isClassMethod, params, isPrivate })
+}
+
 export const outlineOf = (source: string): Outline => {
   const outline: Outline = { constants: new Set(), kinds: new Map(), methods: new Map(), workers: new Set(), aliases: new Map(), parents: new Map() }
   const lines = source.split('\n')
@@ -117,33 +152,8 @@ export const outlineOf = (source: string): Outline => {
       return
     }
     if (here && !isAbstract && marksWorker(line)) outline.workers.add(here)
-    const namespace = line.match(NAMESPACE)
-    if (namespace?.[2] && !opensSingleton(line)) {
-      const name = namespace[2].startsWith('::') ? namespace[2].slice(2) : here ? `${here}::${namespace[2]}` : namespace[2]
-      outline.constants.add(name)
-      outline.kinds.set(name, namespace[1] === 'module' ? 'module' : 'class')
-      const parent = line.match(PARENT)?.[1]
-      if (parent) outline.parents.set(name, parent)
-      return
-    }
-    const constant = line.match(ASSIGNED_CONSTANT)
-    if (constant?.[1]) {
-      const name = here ? `${here}::${constant[1]}` : constant[1]
-      outline.constants.add(name)
-      outline.kinds.set(name, 'value')
-      const target = line.match(/=\s*((?:::)?[A-Z][\w:]*)\s*(?:#.*)?$/)?.[1]
-      if (target) outline.aliases.set(name, target)
-      return
-    }
-    const defLine = fullDef(lines, lineNo - 1)
-    const def = defLine.match(DEF)
-    if (def?.[2] && here) {
-      const isClassMethod = Boolean(def[1]) || body?.kind === 'singleton'
-      // A bare `private` only covers instance methods, so `def self.x` below it stays public.
-      const isPrivate = isPrivateDef(line) || (!def[1] && Boolean(body?.isPrivate))
-      const params = paramsOf(defLine, def[5]).replace(/,\s*$/, '').trim()
-      outline.methods.set(methodKey(here, def[2], isClassMethod), { owner: here, name: def[2], isClassMethod, params, isPrivate })
-    }
+    if (readNamespace(outline, line, here) || readConstant(outline, line, here)) return
+    if (here) readDef(outline, fullDef(lines, lineNo - 1), line, here, body)
   })
   return outline
 }
