@@ -123,38 +123,31 @@ export const isTodoFile = (path: string): boolean => path === 'package_todo.yml'
 
 const unquote = (text: string) => text.trim().replace(/:$/, '').replace(/^["']|["']$/g, '')
 
+type TodoEntry = { target: string; constant: string; types: string[]; files: string[] }
+
+const isSkippableTodoLine = (line: string) => line.trim() === '' || line.trimStart().startsWith('#') || line.startsWith('---')
+
+const addTodoEntry = (todo: Record<string, string[]>, entry: TodoEntry) => {
+  if (entry.constant) for (const type of entry.types) todo[[entry.target, entry.constant, type].join('\t')] = entry.files
+}
+
 // A package_todo.yml as one key per rule (package, constant, violation), each with the files that break it.
 export const parseTodo = (yaml: string): Record<string, string[]> => {
   const todo: Record<string, string[]> = {}
-  let target = ''
-  let constant = ''
-  let mode: 'violations' | 'files' | undefined
-  let types: string[] = []
-  let files: string[] = []
-  const flush = () => {
-    if (constant) for (const type of types) todo[[target, constant, type].join('\t')] = files
-  }
-  for (const line of yaml.split('\n')) {
-    if (/^\s*#/.test(line) || line.trim() === '' || line.startsWith('---')) continue
+  let entry: TodoEntry = { target: '', constant: '', types: [], files: [] }
+  let list: string[] | undefined
+  for (const line of yaml.split('\n').filter(line => !isSkippableTodoLine(line))) {
     const indent = line.length - line.trimStart().length
-    if (indent === 0 || (indent === 2 && !line.trimStart().startsWith('-'))) {
-      flush()
-      if (indent === 0) {
-        target = unquote(line)
-        constant = ''
-      } else constant = unquote(line)
-      types = []
-      files = []
-      mode = undefined
-    } else if (/^\s+violations:/.test(line)) mode = 'violations'
-    else if (/^\s+files:/.test(line)) mode = 'files'
-    else if (line.trimStart().startsWith('- ')) {
-      const item = unquote(line.trimStart().slice(2))
-      if (mode === 'violations') types.push(item)
-      else if (mode === 'files') files.push(item)
-    }
+    const text = line.trimStart()
+    if (indent === 0 || (indent === 2 && !text.startsWith('-'))) {
+      addTodoEntry(todo, entry)
+      entry = { target: indent === 0 ? unquote(line) : entry.target, constant: indent === 0 ? '' : unquote(line), types: [], files: [] }
+      list = undefined
+    } else if (text.startsWith('violations:')) list = entry.types
+    else if (text.startsWith('files:')) list = entry.files
+    else if (text.startsWith('- ')) list?.push(unquote(text.slice(2)))
   }
-  flush()
+  addTodoEntry(todo, entry)
   return todo
 }
 
