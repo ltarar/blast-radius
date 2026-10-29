@@ -28,8 +28,9 @@ up before review, not after.
    /plugin install blast-radius --marketplace ltarar/blast-radius
    ```
 
-2. Tell it where your repos live. Run `/plugin configure blast-radius@blast-radius` and set
-   **Repos folder** (only needed if repos aren't in `~/Repositories`).
+2. Tell it where your repos live. Run `/plugin configure` with the id that `/plugin list`
+   shows, such as `blast-radius@blast-radius`, and set **Repos folder** (only needed if
+   repos aren't in `~/Repositories`).
 
 3. Open the pane:
 
