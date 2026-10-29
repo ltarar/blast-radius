@@ -174,7 +174,8 @@ const splitTests = (hits: Usage[]) => ({
 const countOf = (found: { uses: Usage[]; testUses: number }, repoUses: RepoUses[]) =>
   found.uses.length + found.testUses + repoUses.reduce((n, r) => n + r.uses.length + r.testUses, 0)
 
-async function rubyBreaks(repo: Repo, files: string[], others: Repo[]) {
+// The Ruby outlines of the changed files, before and after the branch.
+async function outlinesOf(repo: Repo, files: string[]) {
   const before: Outline[] = []
   const after: Outline[] = []
   for (const path of files.filter(file => languageOf(file) === 'ruby' && !isTest(file))) {
@@ -183,33 +184,48 @@ async function rubyBreaks(repo: Repo, files: string[], others: Repo[]) {
     if (old) before.push(outlineOf(old))
     if (now) after.push(outlineOf(now))
   }
+  return { before: mergeOutlines(before), after: mergeOutlines(after) }
+}
 
+// The name callers know a change by, which a file the branch didn't touch could still define.
+const nameOf = (change: RubyChange): string => {
+  switch (change.kind) {
+    case 'worker-removed':
+    case 'worker-arguments':
+      return change.worker
+    case 'worker-perform-removed':
+      return methodKey(change.worker, 'perform', false)
+    case 'worker-alias-removed':
+      return change.alias
+    case 'constant-removed':
+      return change.constant
+    default:
+      return methodKey(change.method.owner, change.method.name, change.method.isClassMethod)
+  }
+}
+
+async function usesInOthers(others: Repo[], change: RubyChange) {
+  const repoUses: RepoUses[] = []
+  for (const other of others) {
+    const hits = splitTests(await usesOf(other, change))
+    if (hits.uses.length + hits.testUses > 0) repoUses.push({ repo: other.name, ...hits })
+  }
+  return repoUses
+}
+
+async function rubyBreaks(repo: Repo, files: string[], others: Repo[]) {
+  const { before, after } = await outlinesOf(repo, files)
   const breaks: Break[] = []
-  for (const change of breakingChanges(mergeOutlines(before), mergeOutlines(after))) {
-    const isWorker =
-      change.kind === 'worker-removed' || change.kind === 'worker-arguments' || change.kind === 'worker-alias-removed' || change.kind === 'worker-perform-removed'
+  for (const change of breakingChanges(before, after)) {
     const keepsName = change.kind !== 'arguments-changed' && change.kind !== 'worker-arguments'
-    const name =
-      change.kind === 'worker-removed' || change.kind === 'worker-arguments'
-        ? change.worker
-        : change.kind === 'worker-perform-removed'
-          ? methodKey(change.worker, 'perform', false)
-          : change.kind === 'worker-alias-removed'
-            ? change.alias
-            : change.kind === 'constant-removed'
-              ? change.constant
-              : methodKey(change.method.owner, change.method.name, change.method.isClassMethod)
     // Moved to a file the branch didn't touch, still under the same name: callers still work.
-    if (keepsName && (await isDefinedAnywhere(repo, name))) continue
+    if (keepsName && (await isDefinedAnywhere(repo, nameOf(change)))) continue
 
     const here = splitTests(await usesOf(repo, change))
-    const repoUses: RepoUses[] = []
-    for (const other of others) {
-      const hits = splitTests(await usesOf(other, change))
-      if (hits.uses.length + hits.testUses > 0) repoUses.push({ repo: other.name, ...hits })
-    }
+    const repoUses = await usesInOthers(others, change)
     const count = countOf(here, repoUses)
-    if (isWorker || count > 0) breaks.push({ ...describe(change, count), ...here, repoUses })
+    // Queued Sidekiq jobs break even when no code calls the worker.
+    if (change.kind.startsWith('worker-') || count > 0) breaks.push({ ...describe(change, count), ...here, repoUses })
   }
   return breaks
 }
