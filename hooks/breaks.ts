@@ -73,7 +73,7 @@ async function instanceCalls(repo: Repo, owner: string, name: string) {
 }
 
 async function callsOf(repo: Repo, change: RubyChange) {
-  if (change.kind === 'worker-arguments' || change.kind === 'worker-alias-removed') return []
+  if (change.kind === 'worker-arguments' || change.kind === 'worker-alias-removed' || change.kind === 'worker-perform-removed') return []
   if (change.kind === 'worker-removed') return referencesTo(repo, change.worker, '', true)
   if (change.kind === 'constant-removed') return referencesTo(repo, change.constant, '', true)
   const { owner, name, isClassMethod } = change.method
@@ -118,6 +118,15 @@ export const describe = (change: RubyChange, count: number): Pick<Break, 'level'
       fix: 'Remove it only once Sidekiq has no jobs under this name.',
     }
   }
+  if (change.kind === 'worker-perform-removed') {
+    return change.parent
+      ? {
+          level: 'yellow',
+          text: `You removed ${change.worker}#perform. Jobs already queued will fail unless ${change.parent} has perform.`,
+          fix: `Check that ${change.parent} defines perform.`,
+        }
+      : { level: 'red', text: `You removed ${change.worker}#perform. Jobs already queued will fail.`, fix: 'Keep perform until the queue is empty.' }
+  }
   if (change.kind === 'worker-arguments') {
     return {
       level: 'red',
@@ -159,16 +168,19 @@ async function rubyBreaks(repo: Repo, files: string[], others: Repo[]) {
 
   const breaks: Break[] = []
   for (const change of breakingChanges(mergeOutlines(before), mergeOutlines(after))) {
-    const isWorker = change.kind === 'worker-removed' || change.kind === 'worker-arguments' || change.kind === 'worker-alias-removed'
+    const isWorker =
+      change.kind === 'worker-removed' || change.kind === 'worker-arguments' || change.kind === 'worker-alias-removed' || change.kind === 'worker-perform-removed'
     const keepsName = change.kind !== 'arguments-changed' && change.kind !== 'worker-arguments'
     const name =
       change.kind === 'worker-removed' || change.kind === 'worker-arguments'
         ? change.worker
-        : change.kind === 'worker-alias-removed'
-          ? change.alias
-          : change.kind === 'constant-removed'
-            ? change.constant
-            : methodKey(change.method.owner, change.method.name, change.method.isClassMethod)
+        : change.kind === 'worker-perform-removed'
+          ? methodKey(change.worker, 'perform', false)
+          : change.kind === 'worker-alias-removed'
+            ? change.alias
+            : change.kind === 'constant-removed'
+              ? change.constant
+              : methodKey(change.method.owner, change.method.name, change.method.isClassMethod)
     // Moved to a file the branch didn't touch, still under the same name: callers still work.
     if (keepsName && (await isDefinedAnywhere(repo, name))) continue
 

@@ -6,12 +6,14 @@ export type MethodDef = { owner: string; name: string; isClassMethod: boolean; p
 // `workers` holds the Sidekiq workers a file defines; an abstract base (one that raises NotImplementedError) is left out.
 // `aliases` maps a constant assigned another constant (`Old = New`) to what it points at, as written.
 // `kinds` says how each constant was defined.
+// `parents` maps a class to the parent class it names, as written.
 export type Outline = {
   constants: Set<string>
   kinds: Map<string, 'class' | 'module' | 'value'>
   methods: Map<string, MethodDef>
   workers: Set<string>
   aliases: Map<string, string>
+  parents: Map<string, string>
 }
 
 type Scope = { indent: number; kind: 'namespace' | 'singleton' | 'def'; name: string; isPrivate: boolean }
@@ -24,6 +26,7 @@ const SINGLETON = /^\s*class\s*<<\s*self\b/
 const DEF = /^\s*(?:private\s+|protected\s+|public\s+)?def\s+(self\.)?([a-zA-Z_][\w]*[?!=]?)\s*(\(([^)]*)\)|([^=\n;#]*))?/
 const ASSIGNED_CONSTANT = /^\s*([A-Z][A-Za-z0-9_]*)\s*=[^=~]/
 const VISIBILITY = /^\s*(private|protected|public)\s*$/
+const PARENT = /^\s*class\s+(?:::)?[A-Z][\w:]*\s*<\s*((?:::)?[A-Z][\w:]*)/
 const SIDEKIQ = /^\s*(include\s+Sidekiq::(Job|Worker)\b|sidekiq_options\b)/
 
 export const methodKey = (owner: string, name: string, isClassMethod: boolean) => `${owner}${isClassMethod ? '.' : '#'}${name}`
@@ -61,7 +64,7 @@ const fullDef = (lines: string[], at: number) => {
 }
 
 export const outlineOf = (source: string): Outline => {
-  const outline: Outline = { constants: new Set(), kinds: new Map(), methods: new Map(), workers: new Set(), aliases: new Map() }
+  const outline: Outline = { constants: new Set(), kinds: new Map(), methods: new Map(), workers: new Set(), aliases: new Map(), parents: new Map() }
   const lines = source.split('\n')
   const isAbstract = /\bNotImplementedError\b/.test(source)
   walk(source, (line, lineNo, stack) => {
@@ -80,6 +83,8 @@ export const outlineOf = (source: string): Outline => {
       const name = namespace[2].startsWith('::') ? namespace[2].slice(2) : here ? `${here}::${namespace[2]}` : namespace[2]
       outline.constants.add(name)
       outline.kinds.set(name, namespace[1] === 'module' ? 'module' : 'class')
+      const parent = line.match(PARENT)?.[1]
+      if (parent) outline.parents.set(name, parent)
       return
     }
     const constant = line.match(ASSIGNED_CONSTANT)
@@ -186,6 +191,7 @@ export const isCompatible = (before: string, after: string): boolean => {
 export type RubyChange =
   | { kind: 'worker-removed'; worker: string; renamedTo?: string }
   | { kind: 'worker-arguments'; worker: string; before: string; after: string }
+  | { kind: 'worker-perform-removed'; worker: string; parent?: string }
   | { kind: 'worker-alias-removed'; alias: string; target: string }
   | { kind: 'constant-removed'; constant: string }
   | { kind: 'method-removed'; method: MethodDef }
@@ -203,7 +209,8 @@ export const breakingChanges = (before: Outline, after: Outline): RubyChange[] =
     }
     const old = before.methods.get(methodKey(worker, 'perform', false))
     const now = after.methods.get(methodKey(worker, 'perform', false))
-    if (old && now && !isCompatible(old.params, now.params)) {
+    if (old && !now) changes.push({ kind: 'worker-perform-removed', worker, parent: after.parents.get(worker) })
+    else if (old && now && !isCompatible(old.params, now.params)) {
       changes.push({ kind: 'worker-arguments', worker, before: old.params, after: now.params })
     }
   }
@@ -245,6 +252,7 @@ export const mergeOutlines = (outlines: Outline[]): Outline => ({
   methods: new Map(outlines.flatMap(outline => [...outline.methods])),
   workers: new Set(outlines.flatMap(outline => [...outline.workers])),
   aliases: new Map(outlines.flatMap(outline => [...outline.aliases])),
+  parents: new Map(outlines.flatMap(outline => [...outline.parents])),
 })
 
 // The argument text of the first `.name` call in a line of code: '' for no arguments,

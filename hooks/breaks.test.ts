@@ -116,6 +116,22 @@ describe('what breaks', () => {
     })
   })
 
+  describe('a Sidekiq worker that loses perform', () => {
+    const reminder = (parent: string, perform: boolean) =>
+      `module Leads\n  class Reminder${parent}\n    include Sidekiq::Job\n${perform ? '\n    def perform(lead_id)\n      lead_id\n    end\n' : ''}  end\nend\n`
+    const lost = (parent: string) => repoOf('api', { 'app/leads/reminder.rb': reminder(parent, false) }, { 'app/leads/reminder.rb': reminder(parent, true) })
+
+    test('breaks queued jobs when no parent class can give it one', async () => {
+      const [found] = await findBreaks(lost(''), ['app/leads/reminder.rb'], [])
+      expect(found).toMatchObject({ level: 'red', text: 'You removed Leads::Reminder#perform. Jobs already queued will fail.' })
+    })
+
+    test('may break queued jobs when a parent class might give it one', async () => {
+      const [found] = await findBreaks(lost(' < BaseWorker'), ['app/leads/reminder.rb'], [])
+      expect(found).toMatchObject({ level: 'yellow', text: 'You removed Leads::Reminder#perform. Jobs already queued will fail unless BaseWorker has perform.' })
+    })
+  })
+
   test('a removed Sidekiq worker is named in full, as Sidekiq stores it', async () => {
     const worker = 'module Leads\n  module Workers\n    class Reminder\n      include Sidekiq::Job\n\n      def perform(lead_id)\n        lead_id\n      end\n    end\n  end\nend\n'
     const repo = repoOf('api', {}, { 'app/leads/workers/reminder.rb': worker })
