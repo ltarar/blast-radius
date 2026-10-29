@@ -54,6 +54,20 @@ describe('what stays quiet', () => {
   })
 })
 
+describe('a call split over several lines', () => {
+  const multi = (args: string) => `class Multi\n  def call\n    Pricing::Quote.calculate(\n      items,\n      ${args}\n    )\n  end\nend\n`
+  const repoWith = (args: string) =>
+    repoOf('pricing', { 'lib/pricing/quote.rb': quote(), 'lib/checkout/multi.rb': multi(args) }, { 'lib/pricing/quote.rb': quote('items, currency:, rounding: :pence') })
+
+  test('stays quiet when its arguments still fit', async () => {
+    expect(await findBreaks(repoWith('currency: :gbp'), ['lib/pricing/quote.rb'], [])).toEqual([])
+  })
+
+  test('breaks when its arguments no longer fit', async () => {
+    expect((await findBreaks(repoWith('currency: :gbp,\n      rounding: :up'), ['lib/pricing/quote.rb'], [])).length).toBe(1)
+  })
+})
+
 describe('a method made private', () => {
   test('breaks callers, since the private method no longer answers them', async () => {
     const before = 'module Pricing\n  class Quote\n    def total(items)\n      items\n    end\n  end\nend\n'

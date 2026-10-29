@@ -87,10 +87,24 @@ async function usesOf(repo: Repo, change: RubyChange) {
   const calls = await callsOf(repo, change)
   if (change.kind !== 'arguments-changed') return calls
   const called = change.method.name === 'initialize' ? 'new' : change.method.name
-  return calls.filter(use => {
-    const args = callArguments(use.code, called)
-    return args === undefined || fitsCall(change.method.params, args) === false
-  })
+  const broken = await Promise.all(
+    calls.map(async use => {
+      const args = callArguments(use.code, called) ?? callArguments(await fullCall(repo, use, called), called)
+      return args === undefined || fitsCall(change.method.params, args) === false
+    }),
+  )
+  return calls.filter((_, i) => broken[i])
+}
+
+// A call that runs onto the lines below `use`, joined into one line once its arguments close.
+async function fullCall(repo: Repo, use: Usage, called: string) {
+  const lines = ((await repo.read(use.path)) ?? '').split('\n').slice(use.line - 1, use.line + 20)
+  let text = ''
+  for (const line of lines) {
+    text = `${text} ${line.trim()}`.trim()
+    if (callArguments(text, called) !== undefined) break
+  }
+  return text
 }
 
 // The last two parts of a name, enough to recognise it in a narrow pane: `Steps::AssignConsultant.new`.
